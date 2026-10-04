@@ -51,6 +51,10 @@ public class WorkState {
         return initialBaseWork.getOrDefault(phase, 0.0);
     }
 
+    public Map<ProjectPhase, Double> phaseTotalScope() {
+        return Map.copyOf(initialBaseWork);
+    }
+
     public double getInitialBaseWork(ProjectPhase phase) {
         return getTotalWork(phase);
     }
@@ -173,6 +177,10 @@ public class WorkState {
 
     public double getTestingBacklog(ProjectPhase phase) {
         return testingBacklog.getOrDefault(phase, 0.0);
+    }
+
+    public Map<ProjectPhase, Double> phaseTestingBacklog() {
+        return Map.copyOf(testingBacklog);
     }
 
     public double getTotalTestingBacklog() {

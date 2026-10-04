@@ -22,6 +22,10 @@ import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WeeklySnapshot;
 import edu.simulator.model.WorkIntensity;
 import edu.simulator.report.FinalProjectReport;
+import edu.simulator.report.FinalReportService;
+import edu.simulator.report.ManagementDecisionRecord;
+import edu.simulator.report.DecisionType;
+import edu.simulator.report.TerminationReason;
 import edu.simulator.ui.SimulationStateDto;
 import edu.simulator.ui.ProjectEventDto;
 import edu.simulator.ui.TeamManagementDto;
@@ -52,6 +56,8 @@ public class SimulationEngine {
     private final List<String> acceptedFeatures = new ArrayList<>();
     private final List<String> deferredFeatures = new ArrayList<>();
     private final List<String> rejectedFeatures = new ArrayList<>();
+    private final List<ManagementDecisionRecord> managementDecisions = new ArrayList<>();
+    private final Map<Role, Integer> initialTeam;
     private double schedulePressure = 0.15;
     private WorkIntensity workIntensity = WorkIntensity.SUSTAINABLE;
     private TestingPriority testingPriority = TestingPriority.NORMAL;
@@ -67,6 +73,8 @@ public class SimulationEngine {
     private final List<String> eventsGeneratedThisWeek = new ArrayList<>();
     private final List<String> eventDecisionsThisWeek = new ArrayList<>();
     private boolean complete;
+    private TerminationReason terminationReason;
+    private FinalProjectReport finalReport;
     private int totalTurnover;
     private int defectsReleased;
     private BigDecimal lastWeeklyCost = BigDecimal.ZERO;
@@ -88,8 +96,13 @@ public class SimulationEngine {
         this.project = new Project(scenario.getId(), scenario.getName(),
                 scenario.getDeadlineWeeks(), scenario.getBudget());
         this.team = new Team();
+        EnumMap<Role, Integer> startingTeam = new EnumMap<>(Role.class);
+        for (Role role : Role.values()) {
+            startingTeam.put(role, initialTeam.getOrDefault(role, 0));
+        }
+        this.initialTeam = Map.copyOf(startingTeam);
         initializeScenarioWork();
-        initializeTeam(initialTeam);
+        initializeTeam(this.initialTeam);
         messages.add("Project initialized. Advance from Week 0 to begin the first simulated week.");
     }
 
@@ -134,11 +147,16 @@ public class SimulationEngine {
     }
 
     public void setWorkIntensity(WorkIntensity workIntensity) {
+        ensureActive();
         if (workIntensity == null) {
             throw new IllegalArgumentException("Work intensity is required");
         }
         WorkIntensity previous = this.workIntensity;
         this.workIntensity = workIntensity;
+        if (previous != workIntensity) {
+            recordDecision(DecisionType.WORK_INTENSITY, previous.name(), workIntensity.name(),
+                    "Work intensity changed to " + workIntensity.name().replace('_', ' '), "");
+        }
         if (previous != workIntensity && workIntensity == WorkIntensity.SUSTAINABLE
                 && previous != WorkIntensity.SUSTAINABLE) {
             addMessage("Returning to sustainable hours is allowing the team to recover.");
@@ -150,25 +168,49 @@ public class SimulationEngine {
     }
 
     public void setTestingPriority(TestingPriority testingPriority) {
+        ensureActive();
         if (testingPriority == null) {
             throw new IllegalArgumentException("Testing priority is required");
         }
+        TestingPriority previous = this.testingPriority;
         this.testingPriority = testingPriority;
+        if (previous != testingPriority) {
+            recordDecision(DecisionType.TESTING_PRIORITY, previous.name(), testingPriority.name(),
+                    "Testing priority changed to " + testingPriority.name(), "");
+        }
     }
 
     public void setConcurrencyPolicy(ConcurrencyPolicy value) {
+        ensureActive();
         if (value == null) throw new IllegalArgumentException("Concurrency policy is required");
+        ConcurrencyPolicy previous = concurrencyPolicy;
         concurrencyPolicy = value;
+        if (previous != value) {
+            recordDecision(DecisionType.CONCURRENCY, previous.name(), value.name(),
+                    "Concurrency policy changed to " + value.name(), "");
+        }
     }
 
     public void setEngineeringApproach(EngineeringApproach value) {
+        ensureActive();
         if (value == null) throw new IllegalArgumentException("Engineering approach is required");
+        EngineeringApproach previous = engineeringApproach;
         engineeringApproach = value;
+        if (previous != value) {
+            recordDecision(DecisionType.ENGINEERING_APPROACH, previous.name(), value.name(),
+                    "Engineering approach changed to " + value.name().replace('_', ' '), "");
+        }
     }
 
     public void setTechnicalDebtPriority(TechnicalDebtPriority value) {
+        ensureActive();
         if (value == null) throw new IllegalArgumentException("Technical debt priority is required");
+        TechnicalDebtPriority previous = technicalDebtPriority;
         technicalDebtPriority = value;
+        if (previous != value) {
+            recordDecision(DecisionType.TECHNICAL_DEBT_PRIORITY, previous.name(), value.name(),
+                    "Technical debt priority changed to " + value.name().replace('_', ' '), "");
+        }
     }
 
     public Project getProject() {
@@ -203,6 +245,14 @@ public class SimulationEngine {
         return List.copyOf(eventDecisions);
     }
 
+    public List<ManagementDecisionRecord> getManagementDecisions() {
+        return List.copyOf(managementDecisions);
+    }
+
+    public TerminationReason getTerminationReason() {
+        return terminationReason;
+    }
+
     public List<ProjectEvent> getPendingEvents() {
         return events.stream().filter(ProjectEvent::isBlocking).toList();
     }
@@ -230,6 +280,24 @@ public class SimulationEngine {
                 event.getId(), optionId, selected.label(), project.getCurrentWeek(), result);
         eventDecisions.add(decision);
         eventDecisionsThisWeek.add(event.getId() + ": " + selected.label());
+        boolean featureRequest = event.getType() == EventType.CUSTOMER_FEATURE_REQUEST;
+        String decisionValue = featureRequest ? switch (optionId) {
+            case "ACCEPT" -> "ACCEPTED";
+            case "DEFER" -> "DEFERRED";
+            case "REJECT" -> "REJECTED";
+            default -> throw new IllegalArgumentException("Unsupported feature request choice");
+        } : selected.label();
+        String decisionAction = featureRequest ? switch (optionId) {
+            case "ACCEPT" -> "Accepted";
+            case "DEFER" -> "Deferred";
+            case "REJECT" -> "Rejected";
+            default -> throw new IllegalArgumentException("Unsupported feature request choice");
+        } : selected.label();
+        String description = featureRequest
+                ? decisionAction + " customer feature: " + event.getFeatureName()
+                : "Resolved " + event.getTitle() + ": " + selected.label();
+        recordDecision(featureRequest ? DecisionType.FEATURE_DECISION : DecisionType.EVENT_DECISION,
+                "", decisionValue, description, event.getId());
         addMessage(result);
         recalculateSchedulePressure();
     }
@@ -351,9 +419,7 @@ public class SimulationEngine {
     }
 
     public void hire(HiringDecision decision) {
-        if (complete) {
-            throw new IllegalStateException("Cannot hire after the project has ended");
-        }
+        ensureActive();
         int totalPeople = team.totalCount() + pendingHires.size();
         if (totalPeople + decision.quantity() > 60) {
             throw new IllegalArgumentException("The active team and pending hires cannot exceed 60 people");
@@ -383,6 +449,13 @@ public class SimulationEngine {
         project.addSpent(totalCost);
         hiringCostSinceSnapshot = hiringCostSinceSnapshot.add(totalCost);
         totalHiringCost = totalHiringCost.add(totalCost);
+        String hireDescription = decision.quantity() + " "
+                + decision.experienceLevel().name().replace('_', ' ') + " "
+                + decision.role().name().replace('_', ' ').toLowerCase()
+                + (decision.quantity() == 1 ? " hired." : " hired.");
+        recordDecision(DecisionType.HIRING, "", decision.quantity() + " "
+                        + decision.experienceLevel().name() + " " + decision.role().name(),
+                hireDescription, "");
 
         String roleName = decision.role().name().replace('_', ' ').toLowerCase();
         String experienceName = decision.experienceLevel().name().replace('_', '-').toLowerCase();
@@ -709,18 +782,18 @@ public class SimulationEngine {
         }
 
         if (project.getWorkState().isReleaseReady()) {
-            complete = true;
+            terminate(TerminationReason.RELEASED);
             defectsReleased = (int) Math.round(project.getWorkState().totalUnknownRework());
             addMessage("The project reached a release-ready state.");
         } else if (scenario.isBudgetFailureAllowed()
                 && project.getSpent().compareTo(scenario.getBudget()) > 0) {
-            complete = true;
+            terminate(TerminationReason.BUDGET_EXHAUSTED);
             addMessage("The project exceeded its available budget and was closed.");
             events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM,
                     "Budget overrun ended the project in Week " + simulatedWeek + ".",
                     simulatedWeek));
         } else if (simulatedWeek >= scenario.getDeadlineWeeks()) {
-            complete = true;
+            terminate(TerminationReason.DEADLINE_REACHED);
             addMessage("The project missed its deadline with work still unresolved.");
             events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM,
                     "Deadline missed in Week " + simulatedWeek + ".",
@@ -775,6 +848,10 @@ public class SimulationEngine {
                         project.getWorkState().getTotalTestingBacklog()),
                 schedulePressure,
                 messages,
+                project.getWorkState().phaseTotalScope(),
+                project.getWorkState().phasePerceivedProgress(),
+                project.getWorkState().phaseTrueProgress(),
+                project.getWorkState().phaseTestingBacklog(),
                 project.getWorkState().phaseWorkAttemptedThisWeek(),
                 project.getWorkState().phaseCorrectWorkCompleted(),
                 project.getWorkState().phaseUnknownRework(),
@@ -817,19 +894,33 @@ public class SimulationEngine {
     }
 
     public FinalProjectReport generateFinalReport() {
-        double customerValue = clamp(0.9 - defectsReleased / 100.0
-                + project.calculateTrueProgress() * 0.2);
-        return new FinalProjectReport(
-                project.getCurrentWeek(),
-                scenario.getDeadlineWeeks(),
-                project.getSpent(),
-                scenario.getBudget(),
-                defectsReleased,
-                totalTurnover,
-                averageFatigue(),
-                averageMorale(),
-                customerValue
-        );
+        if (!complete || terminationReason == null) {
+            throw new IllegalStateException("The final report is available only after the project ends");
+        }
+        if (finalReport == null) {
+            finalReport = new FinalReportService().createReport(
+                    scenario, project, team, history, events, eventDecisions,
+                    managementDecisions, initialTeam, terminationReason, seed,
+                    totalTurnover, defectsReleased, totalHiringCost);
+        }
+        return finalReport;
+    }
+
+    private void terminate(TerminationReason reason) {
+        complete = true;
+        terminationReason = reason;
+    }
+
+    private void ensureActive() {
+        if (complete) {
+            throw new IllegalStateException("Project decisions cannot change after the project has ended");
+        }
+    }
+
+    private void recordDecision(DecisionType type, String previous, String value,
+                                String description, String relatedId) {
+        managementDecisions.add(new ManagementDecisionRecord(
+                project.getCurrentWeek(), type, previous, value, description, relatedId));
     }
 
     public double productivityForUi() {
@@ -983,10 +1074,6 @@ public class SimulationEngine {
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("Unknown project phase in scenario: " + key, exception);
         }
-    }
-
-    private double clamp(double value) {
-        return Math.max(0.0, Math.min(1.0, Double.isFinite(value) ? value : 0.0));
     }
 
     private String scheduleHealthLabel() {

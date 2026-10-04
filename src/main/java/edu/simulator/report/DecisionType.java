@@ -1,0 +1,12 @@
+package edu.simulator.report;
+
+public enum DecisionType {
+    WORK_INTENSITY,
+    TESTING_PRIORITY,
+    HIRING,
+    CONCURRENCY,
+    ENGINEERING_APPROACH,
+    TECHNICAL_DEBT_PRIORITY,
+    FEATURE_DECISION,
+    EVENT_DECISION
+}

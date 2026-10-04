@@ -78,6 +78,26 @@ public class JavaBridge {
         return writeJson(simulationEngine.getCurrentState());
     }
 
+    public String getFinalReport() {
+        requireSimulation();
+        return writeJson(simulationEngine.generateFinalReport());
+    }
+
+    public String runAgainWithSameSeed() {
+        requireSimulation();
+        if (!simulationEngine.isComplete()) {
+            throw new IllegalStateException("Finish the current project before replaying its seed");
+        }
+        simulationEngine = new SimulationEngine(
+                scenario, configuration, simulationEngine.getSeed(), new EnumMap<>(selectedTeam));
+        return getSimulationState();
+    }
+
+    public String startNewSimulation() {
+        simulationEngine = null;
+        return getSetupState();
+    }
+
     public String advanceWeek() {
         requireSimulation();
         simulationEngine.advanceWeek();

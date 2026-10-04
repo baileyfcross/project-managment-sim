@@ -45,7 +45,8 @@ def javafxRuntimeModules = configurations.runtimeClasspath.filter { it.name.star
 tasks.named('run', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath - javafxRuntimeModules
     jvmArgs '--module-path', javafxRuntimeModules.asPath,
-            '--add-modules', 'javafx.controls,javafx.web,javafx.media'
+            '--add-modules', 'javafx.controls,javafx.web,javafx.media',
+            "-Dsimulator.version=${project.version}"
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -78,4 +79,51 @@ tasks.register('buildFrontend', Exec) {
 
 processResources {
     dependsOn 'buildFrontend'
+}
+
+tasks.register('packageApp') {
+    dependsOn 'installDist'
+    inputs.files(configurations.runtimeClasspath)
+    inputs.file(tasks.named('jar').flatMap { it.archiveFile })
+    outputs.dir(layout.buildDirectory.dir('package/windows'))
+
+    doLast {
+        if (!isWindows) {
+            throw new GradleException('The packageApp task currently builds a Windows application image only.')
+        }
+        def packageDirectory = layout.buildDirectory.dir('package/windows').get().asFile
+        def applicationImage = new File(packageDirectory, 'SoftwareProjectManagementSimulator')
+        project.delete(applicationImage)
+        packageDirectory.mkdirs()
+
+        def installationDirectory = layout.buildDirectory
+                .dir("install/${application.applicationName}/lib").get().asFile
+        def mainJar = tasks.named('jar').get().archiveFile.get().asFile
+        def javaHome = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.asFile
+        def jpackageExecutable = new File(javaHome, 'bin/jpackage.exe')
+        if (!jpackageExecutable.isFile()) {
+            throw new GradleException("jpackage was not found in the selected Java 21 JDK: ${jpackageExecutable}")
+        }
+        if (!mainJar.isFile() || !installationDirectory.isDirectory()) {
+            throw new GradleException('The application distribution is incomplete; run the Gradle build first.')
+        }
+
+        exec {
+            executable jpackageExecutable.absolutePath
+            args '--type', 'app-image',
+                    '--input', installationDirectory.absolutePath,
+                    '--dest', packageDirectory.absolutePath,
+                    '--name', 'SoftwareProjectManagementSimulator',
+                    '--app-version', project.version.toString(),
+                    '--vendor', 'Software Project Management Simulator',
+                    '--main-jar', mainJar.name,
+                    '--main-class', 'edu.simulator.App',
+                    '--module-path', javafxRuntimeModules.asPath,
+                    '--add-modules', 'javafx.controls,javafx.web,javafx.media',
+                    '--java-options', '--add-modules=javafx.controls,javafx.web,javafx.media',
+                    '--java-options', "-Dsimulator.version=${project.version}"
+        }
+    }
 }

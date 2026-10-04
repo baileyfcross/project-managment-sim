@@ -1,6 +1,6 @@
 # Software Project Management Simulator
 
-The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 5 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, schedule pressure, overtime, fatigue, morale, turnover, contextual project events, scope decisions, technical debt, project concurrency, and repeatable seeded scenarios.
+The Software Project Management Simulator is an offline desktop learning application for students to act as project managers in a simulated software engineering project. It models staffing and delayed onboarding, phase-specific work, QA and rework, schedule and budget pressure, team health and turnover, contextual events, scope decisions, technical debt, and concurrency. After a run, it presents category scores, historical charts, decision review, evidence-based findings, and read-only instructor details.
 
 ## Purpose
 
@@ -10,10 +10,10 @@ This project is designed for classroom use in software engineering courses. Stud
 
 The project uses a layered design:
 
-- Java backend for simulation and domain logic.
+- Java 21 backend for authoritative simulation, history, scoring, reporting, and analysis.
 - JavaFX desktop shell with a JavaFX WebView frontend.
 - Vite and TypeScript for the browser-like UI layer.
-- Gradle to coordinate Java, frontend build, and packaging.
+- Gradle to coordinate Java, frontend build, tests, and Windows application-image packaging.
 
 ## Technology Stack
 
@@ -33,7 +33,7 @@ The project uses a layered design:
 - src/main/resources/scenarios/ - scenario definitions
 - src/main/resources/web/ - generated UI assets copied from Vite
 - src/test/java/ - unit and integration tests
-- docs/ - architecture and simulation documentation
+- docs/ - architecture, scoring, instructor, and simulation documentation
 
 ## Development Requirements
 
@@ -41,7 +41,7 @@ The project uses a layered design:
 - Node.js and npm for frontend build steps
 - Gradle wrapper (Gradle 8.10.2)
 
-Set `JAVA_HOME` to a Java 21 or newer JDK before building. The Gradle Java toolchain requires Java 21; Java 8 is not supported.
+Set `JAVA_HOME` to a Java 21 JDK before building. The Gradle Java toolchain requires Java 21. Node.js and npm are used by developer build tasks; students running the packaged Windows application do not need Java, Gradle, Node.js, npm, or VS Code.
 
 ## Run on Windows
 
@@ -51,7 +51,7 @@ In PowerShell, ensure `JAVA_HOME` points to the installed JDK, then run:
 .\gradlew.bat run
 ```
 
-The same Gradle application run task is available on other platforms with `./gradlew run`. Gradle builds the TypeScript frontend into local Java resources before launching JavaFX. The packaged desktop runtime does not require Node.js or internet access.
+The same Gradle application run task is available on other platforms with `./gradlew run`. Gradle builds the TypeScript frontend into local Java resources before launching JavaFX. The desktop application loads bundled assets and does not require a browser, Vite server, internet connection, or remote service.
 
 ## Test on Windows
 
@@ -65,6 +65,20 @@ The same Gradle application run task is available on other platforms with `./gra
 .\gradlew.bat clean build
 ```
 
+## Package for Windows
+
+On Windows with a Java 21 JDK that includes `jpackage`, build a self-contained application image:
+
+```powershell
+.\gradlew.bat packageApp
+```
+
+The generated launcher and bundled runtime are under `build\package\windows\SoftwareProjectManagementSimulator`. The package task builds the frontend and includes the JavaFX modules required by the desktop app. It produces an application image, not an installer.
+
+## Seeds and replay
+
+Enter a numeric seed at setup to reproduce the same random stream. Leave it blank to generate a seed automatically. The final report displays the run seed and offers **Copy seed** and **Run Again With Same Seed**. Replay resets the simulation and restores the original team and scenario, but does not repeat prior decisions. **Start New Simulation** returns to setup and permits a new seed.
+
 ## Scenario Model
 
 Scenarios are loaded from JSON in src/main/resources/scenarios. Each scenario defines project scope, deadline, budget, and starting parameters. The simulator stores seeded randomness to allow deterministic repeats for classroom comparison.
@@ -75,7 +89,9 @@ Simulation tuning values live in JSON configuration files in src/main/resources/
 
 ## Simulation Highlights
 
-The engine tracks perceived progress separately from internal true progress and unknown rework. Gameplay receives only perceived progress, phase estimates, known rework, current testing signals, and other manager-visible information. Exact unknown rework, true progress, defect probabilities, and future discoveries remain internal to Java and weekly snapshots. The dashboard shows the testing backlog category, known rework, defects found this week, and selectable testing priority. The in-project Manage Team panel shows active staff by role and experience, onboarding states, pending hires, salary and hiring-cost previews, payroll and cost forecasts, mentoring load, and coordination health.
+The engine tracks perceived progress separately from true progress and unknown rework. During play, students see perceived progress, known rework, current testing signals, and other manager-visible information. Exact true progress, unknown rework, internal event effects, and detailed weekly state remain in Java and are not included in the gameplay DTO. Once a run ends, the final report deliberately reveals historical truth for teaching and discussion. The instructor view separates **Visible to Student at the Time** from **Hidden State at the Time**.
+
+The final score is calculated in Java from Schedule (25 points), Budget (25), Quality (25), Team Sustainability (15), and Customer Value (10). The report includes perceived-versus-true progress, cost, quality/rework, team health, team size, debt, and schedule-pressure charts; a decision and event timeline; evidence-based causal findings; and reflection prompts. See [docs/scoring.md](docs/scoring.md) and [docs/instructor-guide.md](docs/instructor-guide.md).
 
 ## Work, quality, and testing
 
@@ -98,6 +114,10 @@ Fatigue belongs to each active employee and remains bounded from 0 to 1. Fatigue
 Morale is also maintained per employee and summarized as Good, Stable, Strained, Poor, or Critical. Sustainable work during lower-pressure periods permits gradual recovery. Turnover is seeded per-employee chance, with a low baseline that increases with severe fatigue, morale below baseline, schedule pressure, and consecutive overtime. Departures are not scripted at a fatigue threshold. A departure removes the employee from future payroll, capacity, mentoring, and coordination. The manager must decide whether to hire a replacement, which still experiences the Phase 2 recruiting delay and onboarding process.
 
 The dashboard exposes workweek hours, an average fatigue category, team morale, turnover-risk category, departures this week, and the current overtime premium. It does not reveal exact employee-level fatigue or departure probabilities. Weekly snapshots retain internal fatigue, morale, overtime, streak, and departure history for later analysis. Forecast cost assumes the currently selected work intensity continues for its projected duration and does not predict future turnover.
+
+## Classroom use
+
+The default Small Business Web Application scenario is configured for a 20-week deadline and a $400,000 budget. Students can use a common seed, compare independently managed runs, and replay the same seed with different decisions. The instructor guide includes setup suggestions, discussion questions, and chart interpretation. Local JSON run export/import and multi-run storage are not implemented; the report includes structured metadata and comparison-ready headline metrics.
 
 ## Project events and management policies
 

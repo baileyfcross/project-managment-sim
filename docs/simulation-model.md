@@ -76,4 +76,8 @@ Quality Health uses only visible known rework, testing backlog, and current disc
 
 ## Scoring
 
-Post-simulation scoring and analysis are planned for a later phase.
+Scoring runs only after termination and is calculated in Java from the completed run history. The 100-point score has five bounded categories: Schedule (25), Budget (25), Quality (25), Team Sustainability (15), and Customer Value (10). The score and category explanations are shown with the final report; formulas and interpretation are documented in [scoring.md](scoring.md).
+
+The final report is assembled from recorded weekly snapshots and event/decision history. It does not simulate additional weeks. Historical charts include manager-visible and internal series; internal truth is available only after the run ends in the instructor view. Deterministic causal findings summarize supported patterns with the observed weeks and values as evidence. They are rule-based explanations, not proof that an individual decision caused an outcome.
+
+The report also records the scenario, seed, initial team summary, ending week, termination reason, and headline metrics. Copying the seed and replaying creates a fresh run with the same scenario/team/seed but resets prior player decisions. Exporting/importing run files and keeping a collection of historical runs are not implemented.

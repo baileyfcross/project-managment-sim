@@ -3,6 +3,7 @@ package edu.simulator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.simulator.configuration.ConfigurationLoader;
+import edu.simulator.configuration.ScenarioConfiguration;
 import edu.simulator.configuration.ScenarioLoader;
 import edu.simulator.decision.HiringDecision;
 import edu.simulator.model.Employee;
@@ -19,6 +20,7 @@ import edu.simulator.model.EngineeringApproach;
 import edu.simulator.model.TechnicalDebtPriority;
 import edu.simulator.event.EventType;
 import edu.simulator.event.ProjectEvent;
+import edu.simulator.event.EventOption;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.CoordinationModel;
 import edu.simulator.simulation.ConcurrencyModel;
@@ -37,6 +39,11 @@ import edu.simulator.simulation.SimulationEngine;
 import edu.simulator.simulation.TestingModel;
 import edu.simulator.simulation.TurnoverModel;
 import edu.simulator.simulation.TechnicalDebtModel;
+import edu.simulator.report.CausalAnalysisService;
+import edu.simulator.report.CausalFinding;
+import edu.simulator.report.FinalProjectReport;
+import edu.simulator.report.ScoringService;
+import edu.simulator.report.TerminationReason;
 import edu.simulator.ui.JavaBridge;
 import org.junit.jupiter.api.Test;
 
@@ -1121,6 +1128,454 @@ class SimulationEngineTest {
                 .values().stream().mapToDouble(Double::doubleValue).sum();
         assertTrue(payDownAttempted < normalAttempted);
         assertTrue(payDown.getProject().getTechnicalDebt() < normal.getProject().getTechnicalDebt());
+    }
+
+    @Test
+    void scoreCategoriesAreBoundedAndSumToOverallScore() {
+        var score = new ScoringService().score(scoringInput(
+                true, 10, 10, 420_000, 400_000, 0.9, 8, List.of()));
+        assertEquals(5, score.categories().size());
+        for (var category : score.categories()) {
+            assertTrue(category.score() >= 0.0);
+            assertTrue(category.score() <= category.maximum());
+            assertTrue(Double.isFinite(category.score()));
+            assertFalse(category.explanation().isBlank());
+        }
+        assertEquals(score.categories().stream().mapToDouble(
+                FinalProjectReport.CategoryScore::score).sum(), score.total(), 0.011);
+        assertTrue(score.total() >= 0.0 && score.total() <= 100.0);
+    }
+
+    @Test
+    void onTimeReleaseScoresBetterThanEquivalentLateRelease() {
+        ScoringService service = new ScoringService();
+        var onTime = service.score(scoringInput(
+                true, 20, 20, 390_000, 400_000, 0.9, 3, List.of()));
+        var late = service.score(scoringInput(
+                true, 24, 20, 390_000, 400_000, 0.9, 3, List.of()));
+        assertTrue(onTime.category("Schedule").score()
+                > late.category("Schedule").score());
+        assertTrue(Double.isFinite(late.total()));
+    }
+
+    @Test
+    void budgetScorePenalizesOverrunAndCapsIncompleteCheapProjects() {
+        ScoringService service = new ScoringService();
+        var withinBudget = service.score(scoringInput(
+                true, 10, 10, 400_000, 400_000, 1.0, 0, List.of()));
+        var overBudget = service.score(scoringInput(
+                true, 10, 10, 800_000, 400_000, 1.0, 0, List.of()));
+        var incompleteCheap = service.score(scoringInput(
+                false, 10, 10, 10_000, 400_000, 0.5, 0, List.of()));
+        assertTrue(overBudget.category("Budget").score()
+                < withinBudget.category("Budget").score());
+        assertTrue(incompleteCheap.category("Budget").score() < 25.0);
+    }
+
+    @Test
+    void releasedDefectsReduceQualityScore() {
+        ScoringService service = new ScoringService();
+        var clean = service.score(scoringInput(
+                true, 10, 10, 300_000, 400_000, 1.0, 0, List.of()));
+        var defective = service.score(scoringInput(
+                true, 10, 10, 300_000, 400_000, 1.0, 120, List.of()));
+        assertTrue(defective.category("Quality").score()
+                < clean.category("Quality").score());
+    }
+
+    @Test
+    void sustainedFatigueAndDeparturesReduceSustainabilityScore() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var crunchConfiguration = ConfigurationLoader.loadDefault();
+        var sustainableConfiguration = ConfigurationLoader.loadDefault();
+        crunchConfiguration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        sustainableConfiguration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        SimulationEngine crunch = new SimulationEngine(
+                scenario, crunchConfiguration, 7711L, teamCounts(3, 1, 1, 1));
+        SimulationEngine sustainable = new SimulationEngine(
+                scenario, sustainableConfiguration, 7711L, teamCounts(3, 1, 1, 1));
+        for (int week = 0; week < 6; week++) {
+            crunch.setWorkIntensity(WorkIntensity.CRUNCH);
+            crunch.advanceWeek();
+            sustainable.advanceWeek();
+        }
+        ScoringService service = new ScoringService();
+        var crunchScore = service.score(scoringInput(
+                false, 6, 20, 100_000, 400_000, 0.5, 0,
+                List.of(), crunch.getHistory(), 0));
+        var sustainableScore = service.score(scoringInput(
+                false, 6, 20, 100_000, 400_000, 0.5, 0,
+                List.of(), sustainable.getHistory(), 0));
+        var departuresScore = service.score(scoringInput(
+                false, 6, 20, 100_000, 400_000, 0.5, 0,
+                List.of(), sustainable.getHistory(), 2));
+        assertTrue(crunchScore.category("Team Sustainability").score()
+                < sustainableScore.category("Team Sustainability").score());
+        assertTrue(departuresScore.category("Team Sustainability").score()
+                < sustainableScore.category("Team Sustainability").score());
+    }
+
+    @Test
+    void acceptedDeferredAndRejectedFeaturesHaveDistinctCustomerValue() {
+        ScoringService service = new ScoringService();
+        var accepted = service.score(scoringInput(
+                true, 10, 10, 300_000, 400_000, 1.0, 0,
+                List.of(featureEvent("ACCEPT"))));
+        var deferred = service.score(scoringInput(
+                false, 10, 10, 300_000, 400_000, 0.5, 0,
+                List.of(featureEvent("DEFER"))));
+        var rejected = service.score(scoringInput(
+                true, 10, 10, 300_000, 400_000, 1.0, 0,
+                List.of(featureEvent("REJECT"))));
+        assertTrue(accepted.category("Customer Value").score()
+                > deferred.category("Customer Value").score());
+        assertTrue(deferred.category("Customer Value").score()
+                > rejected.category("Customer Value").score());
+    }
+
+    @Test
+    void finalReportRequiresTerminationAndRevealsHistoricalTruthOnlyAfterward() throws Exception {
+        SimulationEngine engine = quickReleaseEngine(7781L);
+        String gameplay = objectMapper.writeValueAsString(engine.getCurrentState());
+        assertFalse(gameplay.contains("trueProgress"));
+        assertFalse(gameplay.contains("unknownRework"));
+        assertThrows(IllegalStateException.class, engine::generateFinalReport);
+
+        runToEnd(engine);
+        FinalProjectReport report = engine.generateFinalReport();
+        assertEquals(TerminationReason.RELEASED, engine.getTerminationReason());
+        String reportJson = objectMapper.writeValueAsString(report);
+        assertEquals(Long.toString(engine.getSeed()), report.getMetadata().seed());
+        assertEquals("report-test", report.getMetadata().scenarioId());
+        assertNotNull(report.getMetadata().terminationReason());
+        assertTrue(report.getInstructorWeeks().get(0).hiddenStateAtTime().trueProgress() >= 0.0);
+        assertTrue(reportJson.contains("trueProgress"));
+        assertTrue(reportJson.contains("unknownReworkByPhase"));
+        assertFalse(objectMapper.writeValueAsString(engine.getCurrentState())
+                .contains("trueProgress"));
+    }
+
+    @Test
+    void finalReportIsCachedAndDoesNotMutateTheCompletedProject() {
+        SimulationEngine engine = quickReleaseEngine(7782L);
+        runToEnd(engine);
+        double spentBefore = engine.getProject().getSpent().doubleValue();
+        double debtBefore = engine.getProject().getTechnicalDebt();
+        FinalProjectReport report = engine.generateFinalReport();
+        assertSame(report, engine.generateFinalReport());
+        assertEquals(spentBefore, engine.getProject().getSpent().doubleValue());
+        assertEquals(debtBefore, engine.getProject().getTechnicalDebt());
+        assertEquals(engine.getHistory().size(), report.getCharts().get(0)
+                .series().get(0).points().size());
+    }
+
+    @Test
+    void finalReportClassifiesDeadlineAndBudgetTermination() {
+        var deadlineScenario = reportScenario(1, 1_000_000, 10_000.0);
+        var configuration = reportConfiguration();
+        SimulationEngine incomplete = new SimulationEngine(deadlineScenario, configuration,
+                9001L, teamCounts(0, 0, 0, 0));
+        incomplete.advanceWeek();
+        assertEquals(TerminationReason.DEADLINE_REACHED, incomplete.getTerminationReason());
+        assertEquals("INCOMPLETE_AT_DEADLINE",
+                incomplete.generateFinalReport().getOutcome().status());
+        assertTrue(incomplete.generateFinalReport().getScores()
+                .category("Budget").score() < 25.0);
+
+        var budgetScenario = reportScenario(5, 1, 10_000.0);
+        SimulationEngine exhausted = new SimulationEngine(budgetScenario, configuration,
+                9002L, teamCounts(2, 1, 1, 0));
+        exhausted.advanceWeek();
+        assertEquals(TerminationReason.BUDGET_EXHAUSTED, exhausted.getTerminationReason());
+        assertEquals("BUDGET_EXHAUSTED",
+                exhausted.generateFinalReport().getOutcome().status());
+    }
+
+    @Test
+    void chartDataUsesContiguousWeekOrderedFinitePoints() {
+        SimulationEngine engine = quickReleaseEngine(7783L);
+        runToEnd(engine);
+        FinalProjectReport report = engine.generateFinalReport();
+        assertEquals(1, engine.getHistory().size());
+        assertEquals(7, report.getCharts().size());
+        for (var chart : report.getCharts()) {
+            for (var series : chart.series()) {
+                int previousWeek = 0;
+                for (var point : series.points()) {
+                    assertTrue(point.week() > previousWeek);
+                    assertTrue(Double.isFinite(point.value()));
+                    assertTrue(point.value() >= 0.0);
+                    previousWeek = point.week();
+                }
+            }
+        }
+        assertEquals(engine.getHistory().size(),
+                report.getCharts().get(0).series().get(0).points().size());
+    }
+
+    @Test
+    void snapshotsRetainHistoricalPerPhaseTruthAndScope() {
+        SimulationEngine engine = quickReleaseEngine(7784L);
+        engine.advanceWeek();
+        var snapshot = engine.getHistory().get(0);
+        assertEquals(5, snapshot.getTotalScopeByPhase().size());
+        assertEquals(5, snapshot.getTrueProgressByPhase().size());
+        assertEquals(5, snapshot.getPerceivedProgressByPhase().size());
+        assertEquals(5, snapshot.getTestingBacklogByPhase().size());
+        assertEquals(1, snapshot.getWeek());
+    }
+
+    @Test
+    void managementPolicyChangesAreRecordedOnlyWhenTheValueChanges() {
+        SimulationEngine engine = quickReleaseEngine(7785L);
+        engine.setWorkIntensity(WorkIntensity.CRUNCH);
+        engine.setWorkIntensity(WorkIntensity.CRUNCH);
+        engine.setConcurrencyPolicy(ConcurrencyPolicy.AGGRESSIVE);
+        engine.setEngineeringApproach(EngineeringApproach.CUT_CORNERS);
+        engine.setTechnicalDebtPriority(TechnicalDebtPriority.PAY_DOWN);
+        assertEquals(4, engine.getManagementDecisions().size());
+        assertTrue(engine.getManagementDecisions().stream()
+                .allMatch(decision -> decision.week() == 0));
+    }
+
+    @Test
+    void featureResolutionsAreRecordedAsDecisionTimelineItems() {
+        SimulationEngine engine = featureRequestEngine(7786L);
+        engine.advanceWeek();
+        ProjectEvent request = engine.getPendingEvents().get(0);
+        engine.resolveEvent(request.getId(), "ACCEPT");
+        var record = engine.getManagementDecisions().stream()
+                .filter(decision -> decision.relatedId().equals(request.getId()))
+                .findFirst().orElseThrow();
+        assertEquals("ACCEPTED", record.newValue());
+        assertEquals(1, record.week());
+    }
+
+    @Test
+    void sustainedCrunchProducesAnEvidenceBasedCausalFinding() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var configuration = ConfigurationLoader.loadDefault();
+        configuration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        SimulationEngine engine = new SimulationEngine(
+                scenario, configuration, 7787L, teamCounts(3, 1, 1, 1));
+        for (int week = 0; week < 4; week++) {
+            engine.setWorkIntensity(WorkIntensity.CRUNCH);
+            engine.advanceWeek();
+        }
+        List<CausalFinding> findings = new CausalAnalysisService().analyze(
+                engine.getHistory(), engine.getManagementDecisions(), engine.getEvents());
+        assertTrue(findings.stream().anyMatch(finding ->
+                finding.title().contains("crunch") && !finding.evidence().isEmpty()));
+    }
+
+    @Test
+    void lateAcceptedFeatureProducesAChangeReworkFinding() {
+        ScenarioConfiguration scenario = reportScenario(8, 1_000_000, 10_000.0);
+        var configuration = ConfigurationLoader.loadDefault();
+        var settings = configuration.getPhaseFive().getEvents();
+        settings.setBaseProbability(1.0);
+        settings.setMinimumSpacingWeeks(1);
+        settings.setCooldownWeeks(1);
+        settings.setEventWeights(Map.of(EventType.CUSTOMER_FEATURE_REQUEST.name(), 1.0));
+        SimulationEngine engine = new SimulationEngine(
+                scenario, configuration, 7790L, teamCounts(3, 1, 1, 1));
+        engine.getProject().getWorkState().recordNewWork(
+                ProjectPhase.DEVELOPMENT,
+                engine.getProject().getWorkState().getTotalWork(ProjectPhase.DEVELOPMENT), 0.0);
+        engine.advanceWeek();
+        ProjectEvent firstRequest = engine.getPendingEvents().get(0);
+        engine.resolveEvent(firstRequest.getId(), "REJECT");
+        engine.advanceWeek();
+        ProjectEvent laterRequest = engine.getPendingEvents().get(0);
+        engine.resolveEvent(laterRequest.getId(), "ACCEPT");
+        engine.advanceWeek();
+
+        List<CausalFinding> findings = new CausalAnalysisService().analyze(
+                engine.getHistory(), engine.getManagementDecisions(), engine.getEvents());
+        assertTrue(findings.stream().anyMatch(finding ->
+                finding.title().contains("late accepted feature")
+                        && !finding.evidence().isEmpty()));
+    }
+
+    @Test
+    void proactiveAndReactiveStrategiesProduceStableComparableReports() {
+        ScenarioConfiguration scenario = ScenarioLoader.loadScenario("small-web-app");
+        scenario.setBudget(BigDecimal.valueOf(1_000_000));
+        var proactiveConfiguration = ConfigurationLoader.loadDefault();
+        var reactiveConfiguration = ConfigurationLoader.loadDefault();
+        proactiveConfiguration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        reactiveConfiguration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        SimulationEngine proactive = new SimulationEngine(
+                scenario, proactiveConfiguration, 7791L, teamCounts(5, 2, 1, 1));
+        SimulationEngine reactive = new SimulationEngine(
+                scenario, reactiveConfiguration, 7791L, teamCounts(2, 1, 1, 0));
+        while (!proactive.isComplete()) {
+            proactive.setTestingPriority(TestingPriority.HIGH);
+            proactive.advanceWeek();
+        }
+        for (int week = 0; week < scenario.getDeadlineWeeks() && !reactive.isComplete(); week++) {
+            if (week == 11) {
+                reactive.hire(new HiringDecision(
+                        Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 4));
+            }
+            reactive.setConcurrencyPolicy(ConcurrencyPolicy.AGGRESSIVE);
+            reactive.setEngineeringApproach(EngineeringApproach.CUT_CORNERS);
+            reactive.setTestingPriority(TestingPriority.LOW);
+            if (week >= 7) {
+                reactive.setWorkIntensity(WorkIntensity.CRUNCH);
+            }
+            reactive.advanceWeek();
+        }
+        FinalProjectReport proactiveReport = proactive.generateFinalReport();
+        FinalProjectReport reactiveReport = reactive.generateFinalReport();
+        assertTrue(Double.isFinite(proactiveReport.getScores().total()));
+        assertTrue(Double.isFinite(reactiveReport.getScores().total()));
+        assertTrue(reactiveReport.getMetrics().peakFatigue()
+                >= proactiveReport.getMetrics().peakFatigue());
+        assertTrue(reactiveReport.getMetrics().unknownRework()
+                >= 0.0 && proactiveReport.getMetrics().unknownRework() >= 0.0);
+    }
+
+    @Test
+    void lowQaHistoryCanProduceAQualityBacklogFinding() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var configuration = ConfigurationLoader.loadDefault();
+        configuration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        SimulationEngine engine = new SimulationEngine(
+                scenario, configuration, 7788L, teamCounts(8, 0, 1, 1));
+        for (int week = 0; week < 5 && !engine.isComplete(); week++) {
+            engine.advanceWeek();
+        }
+        List<CausalFinding> findings = new CausalAnalysisService().analyze(
+                engine.getHistory(), engine.getManagementDecisions(), engine.getEvents());
+        assertTrue(findings.stream().anyMatch(finding ->
+                finding.title().contains("Testing backlog")
+                        && !finding.evidence().isEmpty()));
+    }
+
+    @Test
+    void aggressiveConcurrencyAndCutCornersRemainNumericallyStable() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var configuration = ConfigurationLoader.loadDefault();
+        configuration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        SimulationEngine engine = new SimulationEngine(
+                scenario, configuration, 7789L, teamCounts(4, 1, 1, 1));
+        engine.setConcurrencyPolicy(ConcurrencyPolicy.AGGRESSIVE);
+        engine.setEngineeringApproach(EngineeringApproach.CUT_CORNERS);
+        for (int week = 0; week < 5 && !engine.isComplete(); week++) {
+            engine.setWorkIntensity(WorkIntensity.CRUNCH);
+            engine.advanceWeek();
+        }
+        assertTrue(engine.getHistory().stream().allMatch(snapshot ->
+                Double.isFinite(snapshot.getTrueProgress())
+                        && Double.isFinite(snapshot.getUnknownRework())
+                        && Double.isFinite(snapshot.getPhaseFive().technicalDebt())));
+    }
+
+    @Test
+    void bridgeCanReplayACompletedRunWithItsOriginalSeed() throws Exception {
+        JavaBridge bridge = new JavaBridge();
+        bridge.startSimulation("small-web-app", "78901");
+        JsonNode state = objectMapper.readTree(bridge.getSimulationState());
+        int guard = 0;
+        while (!state.get("complete").booleanValue() && guard++ < 25) {
+            for (JsonNode event : state.get("pendingEvents")) {
+                String eventId = event.get("id").textValue();
+                String optionId = event.get("options").get(0).get("id").textValue();
+                bridge.resolveEvent(eventId, optionId);
+            }
+            state = objectMapper.readTree(bridge.advanceWeek());
+        }
+        assertTrue(state.get("complete").booleanValue());
+        JsonNode report = objectMapper.readTree(bridge.getFinalReport());
+        assertEquals("78901", report.at("/metadata/seed").textValue());
+        JsonNode replay = objectMapper.readTree(bridge.runAgainWithSameSeed());
+        assertEquals("78901", replay.get("seed").textValue());
+        assertEquals(0, replay.get("week").intValue());
+        assertFalse(replay.get("complete").booleanValue());
+    }
+
+    @Test
+    void defaultScenarioAlreadyMatchesTheClassroomScale() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        assertEquals(20, scenario.getDeadlineWeeks());
+        assertEquals(new BigDecimal("400000"), scenario.getBudget());
+    }
+
+    private ScoringService.ScoringInput scoringInput(
+            boolean released, int actualWeek, int deadline, double actualCost,
+            double budget, double trueProgress, int releasedDefects,
+            List<ProjectEvent> events) {
+        return scoringInput(released, actualWeek, deadline, actualCost, budget,
+                trueProgress, releasedDefects, events, List.of(), 0);
+    }
+
+    private ScoringService.ScoringInput scoringInput(
+            boolean released, int actualWeek, int deadline, double actualCost,
+            double budget, double trueProgress, int releasedDefects,
+            List<ProjectEvent> events, List<edu.simulator.model.WeeklySnapshot> history,
+            int departures) {
+        return new ScoringService.ScoringInput(
+                released, actualWeek, deadline, BigDecimal.valueOf(actualCost),
+                BigDecimal.valueOf(budget), trueProgress, 1_000.0,
+                releasedDefects, releasedDefects, 0.0, 0.0, 0.0,
+                departures, 8, history, events, List.of());
+    }
+
+    private ProjectEvent featureEvent(String choice) {
+        ProjectEvent event = new ProjectEvent("feature-" + choice.toLowerCase(),
+                EventType.CUSTOMER_FEATURE_REQUEST, "Customer request",
+                "A customer proposed an optional feature.", 1,
+                List.of(new EventOption(choice, choice, "Test decision.")),
+                Map.of(ProjectPhase.DEVELOPMENT, 20.0), "Optional feature",
+                "Potential value", 1.0, 0.8);
+        event.resolve(choice, "Feature decision recorded.");
+        return event;
+    }
+
+    private ScenarioConfiguration reportScenario(int deadline, double budget, double scope) {
+        ScenarioConfiguration scenario = new ScenarioConfiguration();
+        scenario.setId("report-test");
+        scenario.setName("Report test scenario");
+        scenario.setDeadlineWeeks(deadline);
+        scenario.setBudget(BigDecimal.valueOf(budget));
+        scenario.setScope(Map.of(
+                "requirements", scope,
+                "design", scope,
+                "development", scope,
+                "testing", scope,
+                "deployment", scope));
+        return scenario;
+    }
+
+    private edu.simulator.configuration.SimulationConfiguration reportConfiguration() {
+        var configuration = ConfigurationLoader.loadDefault();
+        configuration.getQuality().setBaseDefectRate(0.0);
+        configuration.getQuality().setReworkCreationRate(0.0);
+        configuration.getPhaseFive().getEvents().setBaseProbability(0.0);
+        return configuration;
+    }
+
+    private SimulationEngine quickReleaseEngine(long seed) {
+        SimulationEngine engine = new SimulationEngine(
+                reportScenario(5, 1_000_000, 10.0), reportConfiguration(),
+                seed, teamCounts(10, 5, 3, 1));
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            engine.getProject().getWorkState().addCompletedWork(
+                    phase, engine.getProject().getWorkState().getTotalWork(phase));
+        }
+        return engine;
+    }
+
+    private void runToEnd(SimulationEngine engine) {
+        int guard = 0;
+        while (!engine.isComplete() && guard++ < 10) {
+            for (ProjectEvent event : engine.getPendingEvents()) {
+                engine.resolveEvent(event.getId(), event.getOptions().get(0).id());
+            }
+            engine.advanceWeek();
+        }
+        assertTrue(engine.isComplete(), "Test project should terminate within the guard");
     }
 
     private Project projectWithScope() {

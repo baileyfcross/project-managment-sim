@@ -31,6 +31,10 @@ public class WeeklySnapshot {
     private final int estimatedCompletionWeek;
     private final double schedulePressure;
     private final List<String> recentMessages;
+    private final Map<ProjectPhase, Double> totalScopeByPhase;
+    private final Map<ProjectPhase, Double> perceivedProgressByPhase;
+    private final Map<ProjectPhase, Double> trueProgressByPhase;
+    private final Map<ProjectPhase, Double> testingBacklogByPhase;
     private final Map<ProjectPhase, Double> workAttemptedByPhase;
     private final Map<ProjectPhase, Double> correctWorkByPhase;
     private final Map<ProjectPhase, Double> unknownReworkByPhase;
@@ -65,6 +69,10 @@ public class WeeklySnapshot {
                           double knownRework, double unknownRework,
                           int estimatedCompletionWeek, double schedulePressure,
                           List<String> recentMessages,
+                          Map<ProjectPhase, Double> totalScopeByPhase,
+                          Map<ProjectPhase, Double> perceivedProgressByPhase,
+                          Map<ProjectPhase, Double> trueProgressByPhase,
+                          Map<ProjectPhase, Double> testingBacklogByPhase,
                           Map<ProjectPhase, Double> workAttemptedByPhase,
                           Map<ProjectPhase, Double> correctWorkByPhase,
                           Map<ProjectPhase, Double> unknownReworkByPhase,
@@ -108,6 +116,10 @@ public class WeeklySnapshot {
         this.estimatedCompletionWeek = estimatedCompletionWeek;
         this.schedulePressure = SimulationValues.unitInterval(schedulePressure);
         this.recentMessages = List.copyOf(recentMessages);
+        this.totalScopeByPhase = immutablePhaseMap(totalScopeByPhase);
+        this.perceivedProgressByPhase = immutableProgressMap(perceivedProgressByPhase);
+        this.trueProgressByPhase = immutableProgressMap(trueProgressByPhase);
+        this.testingBacklogByPhase = immutablePhaseMap(testingBacklogByPhase);
         this.workAttemptedByPhase = immutablePhaseMap(workAttemptedByPhase);
         this.correctWorkByPhase = immutablePhaseMap(correctWorkByPhase);
         this.unknownReworkByPhase = immutablePhaseMap(unknownReworkByPhase);
@@ -227,6 +239,10 @@ public class WeeklySnapshot {
         return recentMessages;
     }
 
+    public Map<ProjectPhase, Double> getTotalScopeByPhase() { return totalScopeByPhase; }
+    public Map<ProjectPhase, Double> getPerceivedProgressByPhase() { return perceivedProgressByPhase; }
+    public Map<ProjectPhase, Double> getTrueProgressByPhase() { return trueProgressByPhase; }
+    public Map<ProjectPhase, Double> getTestingBacklogByPhase() { return testingBacklogByPhase; }
     public Map<ProjectPhase, Double> getWorkAttemptedByPhase() { return workAttemptedByPhase; }
     public Map<ProjectPhase, Double> getCorrectWorkByPhase() { return correctWorkByPhase; }
     public Map<ProjectPhase, Double> getUnknownReworkByPhase() { return unknownReworkByPhase; }
@@ -253,6 +269,14 @@ public class WeeklySnapshot {
         EnumMap<ProjectPhase, Double> copy = new EnumMap<>(ProjectPhase.class);
         for (ProjectPhase phase : ProjectPhase.values()) {
             copy.put(phase, SimulationValues.nonNegativeFinite(source.getOrDefault(phase, 0.0)));
+        }
+        return Map.copyOf(copy);
+    }
+
+    private Map<ProjectPhase, Double> immutableProgressMap(Map<ProjectPhase, Double> source) {
+        EnumMap<ProjectPhase, Double> copy = new EnumMap<>(ProjectPhase.class);
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            copy.put(phase, SimulationValues.unitInterval(source.getOrDefault(phase, 0.0)));
         }
         return Map.copyOf(copy);
     }
