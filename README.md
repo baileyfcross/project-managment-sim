@@ -1,6 +1,6 @@
 # Software Project Management Simulator
 
-The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 3 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, budget pressure, and repeatable seeded scenarios.
+The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 4 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, schedule pressure, overtime, fatigue, morale, turnover, and repeatable seeded scenarios.
 
 ## Purpose
 
@@ -71,7 +71,7 @@ Scenarios are loaded from JSON in src/main/resources/scenarios. Each scenario de
 
 ## Configuration Model
 
-Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, developer rework allocation, phase overlap, quality and defect modifiers, QA throughput and testing priority, regression testing, productivity, fatigue, and overtime parameters.
+Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, developer rework allocation, phase overlap, quality and defect modifiers, QA throughput and testing priority, regression testing, workweek hours and effort, fatigue accumulation and effects, morale recovery, turnover risk, productivity, and overtime premiums.
 
 ## Simulation Highlights
 
@@ -88,6 +88,16 @@ Testing priority changes QA inspection capacity and detection effectiveness. Low
 The schedule forecast uses perceived remaining work, known rework, role-specific capacity, and testing backlog. It never uses unknown rework or exact hidden defect counts. A project can satisfy its known work, testing, and deployment requirements and release while unknown defects remain; the released-defect count is retained internally for later analysis.
 
 Post-start hires are selected by role, experience, and quantity. Hiring fees are charged when the decision is accepted; salary and productivity begin only when recruiting delay expires. Hires then contribute at configured initial onboarding effectiveness and progress toward full contribution over their experience-based onboarding duration, moderated by mentoring coverage. Junior, mid-level, and senior staff have different salary and productivity values. Non-developer roles contribute to QA, DevOps, project management, mentoring, and coordination effects, but not feature-development throughput.
+
+## Overtime and team health
+
+Managers can select a Sustainable, Increased, or Crunch workweek. The default schedules are 40, 48, and 60 hours. Higher intensity applies a separate configurable effort multiplier, so overtime can improve immediate throughput with diminishing returns rather than scaling directly with hours. Overtime adds a premium only for hours above the standard schedule; the default premium rate is applied proportionally to those extra hours and does not multiply all payroll by an overtime factor.
+
+Fatigue belongs to each active employee and remains bounded from 0 to 1. Fatigue at the start of a week affects that week's productivity, defect probability, QA effectiveness, mentoring capacity, and coordination contribution. The selected intensity and that week's schedule pressure update fatigue at the end of the week. Accumulation increases gradually with overtime streaks and fatigue; sustainable hours recover gradually, with pressure slowing recovery. The productivity penalty grows with squared fatigue, allowing an early Crunch boost to later be outweighed by accumulated fatigue.
+
+Morale is also maintained per employee and summarized as Good, Stable, Strained, Poor, or Critical. Sustainable work during lower-pressure periods permits gradual recovery. Turnover is seeded per-employee chance, with a low baseline that increases with severe fatigue, morale below baseline, schedule pressure, and consecutive overtime. Departures are not scripted at a fatigue threshold. A departure removes the employee from future payroll, capacity, mentoring, and coordination. The manager must decide whether to hire a replacement, which still experiences the Phase 2 recruiting delay and onboarding process.
+
+The dashboard exposes workweek hours, an average fatigue category, team morale, turnover-risk category, departures this week, and the current overtime premium. It does not reveal exact employee-level fatigue or departure probabilities. Weekly snapshots retain internal fatigue, morale, overtime, streak, and departure history for later analysis. Forecast cost assumes the currently selected work intensity continues for its projected duration and does not predict future turnover.
 
 ## Week and seed behavior
 

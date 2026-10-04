@@ -1,4 +1,4 @@
-package edu.simulator.simulation;
+package edu.simulator.model;
 
 public enum WorkIntensity {
     SUSTAINABLE,

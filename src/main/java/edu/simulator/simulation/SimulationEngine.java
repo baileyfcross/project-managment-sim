@@ -14,7 +14,7 @@ import edu.simulator.model.Role;
 import edu.simulator.model.Team;
 import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WeeklySnapshot;
-import edu.simulator.model.WorkState;
+import edu.simulator.model.WorkIntensity;
 import edu.simulator.report.FinalProjectReport;
 import edu.simulator.ui.SimulationStateDto;
 import edu.simulator.ui.TeamManagementDto;
@@ -28,7 +28,6 @@ import java.util.Map;
 import java.util.Random;
 
 public class SimulationEngine {
-    private static final double WORK_UNITS_PER_PRODUCTIVITY = 180.0;
     private static final int RECENT_MESSAGE_LIMIT = 8;
 
     private final ScenarioConfiguration scenario;
@@ -41,8 +40,6 @@ public class SimulationEngine {
     private final List<ProjectEvent> events = new ArrayList<>();
     private final List<PendingHire> pendingHires = new ArrayList<>();
     private final List<String> messages = new ArrayList<>();
-    private double fatigue = 0.18;
-    private double morale = 0.72;
     private double schedulePressure = 0.15;
     private WorkIntensity workIntensity = WorkIntensity.SUSTAINABLE;
     private TestingPriority testingPriority = TestingPriority.NORMAL;
@@ -50,6 +47,8 @@ public class SimulationEngine {
     private int totalTurnover;
     private int defectsReleased;
     private BigDecimal lastWeeklyCost = BigDecimal.ZERO;
+    private BigDecimal lastOvertimeCost = BigDecimal.ZERO;
+    private int departuresThisWeek;
     private BigDecimal hiringCostSinceSnapshot = BigDecimal.ZERO;
     private BigDecimal totalHiringCost = BigDecimal.ZERO;
 
@@ -88,6 +87,7 @@ public class SimulationEngine {
                 ExperienceLevel level = assignDefaultExperience(role);
                 Employee employee = new Employee(role, level,
                         config.getCosts().weeklySalary(role, level));
+                employee.setMorale(config.getMorale().getBaseline());
                 employee.setOnboardingProgress(1.0);
                 employee.setOnboardingDurationWeeks(onboardingWeeksFor(level));
                 team.addEmployee(employee);
@@ -113,7 +113,16 @@ public class SimulationEngine {
         if (workIntensity == null) {
             throw new IllegalArgumentException("Work intensity is required");
         }
+        WorkIntensity previous = this.workIntensity;
         this.workIntensity = workIntensity;
+        if (previous != workIntensity && workIntensity == WorkIntensity.SUSTAINABLE
+                && previous != WorkIntensity.SUSTAINABLE) {
+            addMessage("Returning to sustainable hours is allowing the team to recover.");
+        } else if (previous != workIntensity && workIntensity == WorkIntensity.CRUNCH) {
+            addMessage("Crunch hours increase short-term effort, but sustained overtime raises team risk.");
+        } else if (previous != workIntensity && workIntensity == WorkIntensity.INCREASED) {
+            addMessage("Increased hours raise short-term effort and may accumulate fatigue.");
+        }
     }
 
     public void setTestingPriority(TestingPriority testingPriority) {
@@ -178,6 +187,7 @@ public class SimulationEngine {
         for (int index = 0; index < decision.quantity(); index++) {
             Employee employee = new Employee(decision.role(), decision.experienceLevel(),
                     config.getCosts().weeklySalary(decision.role(), decision.experienceLevel()));
+            employee.setMorale(config.getMorale().getBaseline());
             employee.setOnboardingDurationWeeks(onboardingWeeksFor(decision.experienceLevel()));
             employee.setOnboardingProgress(config.getOnboarding().getInitialEffectiveness());
             employee.setOnboardingState(new MentoringModel().stateFor(employee.getOnboardingProgress()));
@@ -216,6 +226,7 @@ public class SimulationEngine {
     public SimulationStateDto getCurrentState() {
         CostModel costModel = new CostModel();
         BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
+        BigDecimal forecastOvertime = costModel.calculateOvertimeCost(payroll, workIntensity, config);
         ProductivityModel.ProductivityResult productivity = calculateProductivity();
         int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(
                 project, productivity.developerEffectiveCapacity(),
@@ -226,7 +237,7 @@ public class SimulationEngine {
         int estimatedWeeksToFinish = estimatedCompletionWeek < 0
                 ? Math.max(0, scenario.getDeadlineWeeks() - project.getCurrentWeek())
                 : Math.max(0, estimatedCompletionWeek - project.getCurrentWeek());
-        BigDecimal projectedCost = payroll.add(costModel.calculateOvertimeCost(payroll, workIntensity, config))
+        BigDecimal projectedCost = payroll.add(forecastOvertime)
                 .multiply(BigDecimal.valueOf(estimatedWeeksToFinish));
         for (PendingHire pendingHire : pendingHires) {
             int paidWeeks = Math.max(0, estimatedWeeksToFinish - pendingHire.getWeeksUntilStart());
@@ -261,7 +272,12 @@ public class SimulationEngine {
                 new TestingModel().backlogStatus(
                         project.getWorkState().getTotalTestingBacklog(), config),
                 testingPriority,
-                productivity.qaEffectiveCapacity()
+                        productivity.qaEffectiveCapacity(),
+                        config.getWorkIntensity().hours(workIntensity),
+                        fatigueHealthLabel(),
+                        new TurnoverModel().riskCategory(team, schedulePressure, config),
+                        departuresThisWeek,
+                        lastOvertimeCost
         );
     }
 
@@ -332,6 +348,10 @@ public class SimulationEngine {
         int simulatedWeek = project.getCurrentWeek() + 1;
         project.setCurrentWeek(simulatedWeek);
         project.getWorkState().beginWeek();
+        departuresThisWeek = 0;
+        String previousFatigueCategory = new FatigueModel().category(averageFatigue());
+        String previousMoraleCategory = moraleHealthLabel();
+        double previousOvertimeStreak = averageOvertimeStreak();
         String previousBacklogStatus = new TestingModel().backlogStatus(
                 project.getWorkState().getTotalTestingBacklog(), config);
         double previousKnownRework = project.getWorkState().totalKnownRework();
@@ -350,31 +370,34 @@ public class SimulationEngine {
         }
         mentoring = mentoringModel.calculate(team, pendingHires.size(), config);
         double coordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
-        ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculate(
-                team, workIntensity, fatigue, schedulePressure, config, mentoring);
+        ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculateForTeam(
+                team, workIntensity, schedulePressure, config, mentoring);
         double developerWorkCapacity =
-                productivity.developerEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
+                productivity.developerEffectiveCapacity() * ProductivityModel.WORK_UNITS_PER_CAPACITY;
+        int workingTeamSize = team.totalCount();
         WorkAllocationModel.Allocation allocation = new WorkAllocationModel().allocate(
                 developerWorkCapacity, project.getWorkState().totalKnownRework(), config);
         DefectModel defectModel = new DefectModel();
         double developerDefectRate = defectModel.defectProbability(
                 ProjectPhase.DEVELOPMENT, developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
-                mentoring.coverage(), fatigue, coordinationPenalty, schedulePressure,
+                mentoring.coverage(), averageFatigue(Role.DEVELOPER), coordinationPenalty, schedulePressure,
                 workIntensity, project.getWorkState(), config);
         ReworkModel.ReworkResult rework = new ReworkModel().perform(
                 project.getWorkState(), allocation.reworkCapacity(), developerDefectRate, config, random);
-        NewWorkModel.NewWorkResult newWork = new NewWorkModel().performDevelopment(
+        new NewWorkModel().performDevelopment(
                 project.getWorkState(), allocation.newWorkCapacity() + rework.unusedCapacity(),
                 developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
-                mentoring.coverage(), fatigue, coordinationPenalty, schedulePressure,
+                mentoring.coverage(), averageFatigue(Role.DEVELOPER), coordinationPenalty, schedulePressure,
                 workIntensity, config, random);
-        NewWorkModel.NewWorkResult deployment = new NewWorkModel().performDeployment(
+        new NewWorkModel().performDeployment(
                 project.getWorkState(),
-                productivity.devopsEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY,
+                productivity.devopsEffectiveCapacity() * ProductivityModel.WORK_UNITS_PER_CAPACITY,
                 roleExperienceModifier(Role.DEVOPS_ENGINEER), mentoring.coverage(),
-                fatigue, coordinationPenalty, schedulePressure, workIntensity, config, random);
+                averageFatigue(Role.DEVOPS_ENGINEER), coordinationPenalty, schedulePressure,
+                workIntensity, config, random);
         TestingModel.TestingResult testing = new TestingModel().perform(
-                project.getWorkState(), productivity.qaEffectiveCapacity(), fatigue,
+                project.getWorkState(), productivity.qaEffectiveCapacity(),
+                averageFatigue(Role.QA_ENGINEER),
                 testingPriority, config, random);
         if (testing.defectsDiscovered() >= 1.0) {
             addMessage("QA discovered " + Math.round(testing.defectsDiscovered())
@@ -395,38 +418,63 @@ public class SimulationEngine {
         }
 
         schedulePressure = new SchedulePressureModel().calculate(
-                project, project.getWorkState().perceivedRemainingWork(),
-                Math.max(1.0, developerWorkCapacity), project.getWorkState().totalKnownRework(), config);
+                project, productivity.developerEffectiveCapacity(),
+                productivity.qaEffectiveCapacity()
+                        * config.getTesting().capacityFactor(testingPriority),
+                productivity.devopsEffectiveCapacity(),
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalTestingBacklog(), config);
         project.recordSchedulePressure(schedulePressure);
-        fatigue = new FatigueModel().updateFatigue(fatigue, workIntensity, config);
+        FatigueModel fatigueModel = new FatigueModel();
+        MoraleModel moraleModel = new MoraleModel();
         for (Employee employee : team.activeEmployees()) {
-            employee.setFatigue(fatigue);
+            employee.setFatigue(fatigueModel.updateFatigue(
+                    employee, workIntensity, schedulePressure, config));
+            employee.setMorale(moraleModel.updateMorale(
+                    employee, workIntensity, schedulePressure, config));
+            employee.recordWorkIntensity(workIntensity != WorkIntensity.SUSTAINABLE);
         }
-        morale = clamp(morale - schedulePressure * 0.18
-                + (workIntensity == WorkIntensity.SUSTAINABLE ? 0.03 : -0.02));
-        int departures = new TurnoverModel().calculateTurnover(
-                team, fatigue, morale, schedulePressure, config, random);
-        totalTurnover += departures;
-        if (departures > 0) {
+        if (previousOvertimeStreak < 3.0 && averageOvertimeStreak() >= 3.0) {
+            addMessage("The team has worked overtime for three consecutive weeks.");
+        }
+        String currentFatigueCategory = new FatigueModel().category(averageFatigue());
+        if (!currentFatigueCategory.equals(previousFatigueCategory)) {
+            String message = "Average team fatigue is now " + currentFatigueCategory.toLowerCase();
+            if (currentFatigueCategory.equals("Burnout Risk")
+                    || currentFatigueCategory.equals("Severe Burnout")) {
+                message += ", reducing productivity and QA effectiveness";
+            }
+            addMessage(message + ".");
+        }
+        String currentMoraleCategory = moraleHealthLabel();
+        if (!currentMoraleCategory.equals(previousMoraleCategory)) {
+            addMessage("Team morale is now " + currentMoraleCategory.toLowerCase() + ".");
+        }
+        CostModel costModel = new CostModel();
+        BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
+        lastOvertimeCost = costModel.calculateOvertimeCost(payroll, workIntensity, config);
+        List<Employee> departures = new TurnoverModel().resolveDepartures(
+                team, schedulePressure, config, random);
+        departuresThisWeek = departures.size();
+        totalTurnover += departuresThisWeek;
+        if (!departures.isEmpty()) {
             team.removeInactiveEmployees();
-            addMessage(departures + " team member(s) left the project.");
+            for (Employee employee : departures) {
+                addMessage(employee.getExperienceLevel().name().replace('_', '-')
+                        + " " + employee.getRole().name().replace('_', ' ').toLowerCase()
+                        + " left the project.");
+            }
             events.add(new ProjectEvent(EventType.EMPLOYEE_RESIGNATION,
-                    departures + " employees exited the project in Week " + simulatedWeek + ".",
+                    departuresThisWeek + " employees exited the project in Week " + simulatedWeek + ".",
                     simulatedWeek));
         }
+        MentoringModel.MentoringResult endingMentoring =
+                mentoringModel.calculate(team, pendingHires.size(), config);
+        double endingCoordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
 
-        BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
-        BigDecimal overtime = new CostModel().calculateOvertimeCost(payroll, workIntensity, config);
         BigDecimal hiringCost = hiringCostSinceSnapshot;
-        lastWeeklyCost = payroll.add(overtime).add(hiringCost);
-        project.addSpent(payroll.add(overtime));
-
-        if (schedulePressure > 0.8 && random.nextDouble() < 0.25) {
-            events.add(new ProjectEvent(EventType.PRODUCTION_BUG,
-                    "Production issues emerged under heavy schedule pressure in Week " + simulatedWeek + ".",
-                    simulatedWeek));
-            addMessage("Production issues emerged under heavy schedule pressure.");
-        }
+        lastWeeklyCost = payroll.add(lastOvertimeCost).add(hiringCost);
+        project.addSpent(payroll.add(lastOvertimeCost));
 
         if (project.getWorkState().isReleaseReady()) {
             complete = true;
@@ -447,8 +495,8 @@ public class SimulationEngine {
                     simulatedWeek));
         }
 
-        double averageProductivity = team.totalCount() == 0
-                ? 0.0 : productivity.totalEffectiveCapacity() / team.totalCount();
+        double averageProductivity = workingTeamSize == 0
+                ? 0.0 : productivity.totalEffectiveCapacity() / workingTeamSize;
         history.add(new WeeklySnapshot(
                 simulatedWeek,
                 project.getSpent(),
@@ -462,18 +510,20 @@ public class SimulationEngine {
                 team.onboardingEmployees().size(),
                 pendingHires.size(),
                 averageOnboardingEffectiveness(),
-                mentoring.load(),
-                mentoring.coverage(),
-                coordinationPenalty,
+                endingMentoring.load(),
+                endingMentoring.coverage(),
+                endingCoordinationPenalty,
                 payroll,
                 hiringCost,
                 averageProductivity,
-                fatigue,
+                averageFatigue(),
                 project.getWorkState().totalKnownRework(),
                 project.getWorkState().totalUnknownRework(),
                 new ForecastModel().estimateCompletionWeek(
                         project, productivity.developerEffectiveCapacity(),
-                        productivity.qaEffectiveCapacity(), productivity.devopsEffectiveCapacity(),
+                        productivity.qaEffectiveCapacity()
+                                * config.getTesting().capacityFactor(testingPriority),
+                        productivity.devopsEffectiveCapacity(),
                         project.getWorkState().getTotalTestingBacklog()),
                 schedulePressure,
                 messages,
@@ -489,7 +539,15 @@ public class SimulationEngine {
                 complete ? defectsReleased : 0,
                 qualityHealthLabel(),
                 testing.backlogStatus(),
-                testingPriority
+                testingPriority,
+                workIntensity,
+                maximumFatigue(),
+                averageMorale(),
+                lastOvertimeCost,
+                averageOvertimeStreak(),
+                new TurnoverModel().riskCategory(team, schedulePressure, config),
+                departures.stream().map(employee -> employee.getExperienceLevel().name()
+                        + " " + employee.getRole().name()).toList()
         ));
         hiringCostSinceSnapshot = BigDecimal.ZERO;
     }
@@ -504,8 +562,8 @@ public class SimulationEngine {
                 scenario.getBudget(),
                 defectsReleased,
                 totalTurnover,
-                fatigue,
-                morale,
+                averageFatigue(),
+                averageMorale(),
                 customerValue
         );
     }
@@ -514,15 +572,38 @@ public class SimulationEngine {
         return calculateProductivity().totalEffectiveCapacity();
     }
 
-    private double developerCapacity() {
-        return calculateProductivity().developerEffectiveCapacity();
-    }
-
     private ProductivityModel.ProductivityResult calculateProductivity() {
         MentoringModel.MentoringResult mentoring =
                 new MentoringModel().calculate(team, pendingHires.size(), config);
-        return new ProductivityModel().calculate(
-                team, workIntensity, fatigue, schedulePressure, config, mentoring);
+        return new ProductivityModel().calculateForTeam(
+                team, workIntensity, schedulePressure, config, mentoring);
+    }
+
+    private double averageFatigue() {
+        return team.activeEmployees().stream().mapToDouble(Employee::getFatigue)
+                .average().orElse(0.0);
+    }
+
+    private double averageFatigue(Role role) {
+        return team.activeEmployees().stream()
+                .filter(employee -> employee.getRole() == role)
+                .mapToDouble(Employee::getFatigue).average().orElse(0.0);
+    }
+
+    private double maximumFatigue() {
+        return team.activeEmployees().stream().mapToDouble(Employee::getFatigue)
+                .max().orElse(0.0);
+    }
+
+    private double averageMorale() {
+        return team.activeEmployees().stream().mapToDouble(Employee::getMorale)
+                .average().orElse(0.0);
+    }
+
+    private double averageOvertimeStreak() {
+        return team.activeEmployees().stream()
+                .mapToInt(Employee::getConsecutiveOvertimeWeeks)
+                .average().orElse(0.0);
     }
 
     private Map<String, Integer> roleCounts() {
@@ -630,13 +711,7 @@ public class SimulationEngine {
     }
 
     private String scheduleHealthLabel() {
-        if (schedulePressure < 0.25) {
-            return "Healthy";
-        }
-        if (schedulePressure < 0.63) {
-            return "At Risk";
-        }
-        return "Critical";
+        return new SchedulePressureModel().category(schedulePressure);
     }
 
     private String budgetHealthLabel() {
@@ -684,12 +759,16 @@ public class SimulationEngine {
     }
 
     private String moraleHealthLabel() {
-        if (morale > 0.7) {
-            return "Good";
+        if (team.totalCount() == 0) {
+            return "No Active Team";
         }
-        if (morale > 0.45) {
-            return "Strained";
+        return new MoraleModel().healthLabel(averageMorale());
+    }
+
+    private String fatigueHealthLabel() {
+        if (team.totalCount() == 0) {
+            return "No Active Team";
         }
-        return "Poor";
+        return new FatigueModel().category(averageFatigue());
     }
 }

@@ -13,19 +13,22 @@ import edu.simulator.model.Role;
 import edu.simulator.model.Team;
 import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WorkState;
+import edu.simulator.model.WorkIntensity;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.CoordinationModel;
 import edu.simulator.simulation.DefectModel;
 import edu.simulator.simulation.FatigueModel;
 import edu.simulator.simulation.ForecastModel;
 import edu.simulator.simulation.MentoringModel;
+import edu.simulator.simulation.MoraleModel;
 import edu.simulator.simulation.NewWorkModel;
 import edu.simulator.simulation.PhaseReadinessModel;
 import edu.simulator.simulation.ProductivityModel;
 import edu.simulator.simulation.ReworkModel;
+import edu.simulator.simulation.SchedulePressureModel;
 import edu.simulator.simulation.SimulationEngine;
 import edu.simulator.simulation.TestingModel;
-import edu.simulator.simulation.WorkIntensity;
+import edu.simulator.simulation.TurnoverModel;
 import edu.simulator.ui.JavaBridge;
 import org.junit.jupiter.api.Test;
 
@@ -639,6 +642,285 @@ class SimulationEngineTest {
                 > balanced.getProject().getWorkState().totalUnknownRework());
     }
 
+    @Test
+    void workIntensityIncreasesImmediateCapacityAndOvertimeCostByConfiguredHours() {
+        var config = ConfigurationLoader.loadDefault();
+        Team team = new Team();
+        team.addEmployee(new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100.0));
+        ProductivityModel productivity = new ProductivityModel();
+        double sustainable = productivity.calculate(
+                team, WorkIntensity.SUSTAINABLE, 0.0, 0.0, config).developerEffectiveCapacity();
+        double increased = productivity.calculate(
+                team, WorkIntensity.INCREASED, 0.0, 0.0, config).developerEffectiveCapacity();
+        double crunch = productivity.calculate(
+                team, WorkIntensity.CRUNCH, 0.0, 0.0, config).developerEffectiveCapacity();
+        CostModel costs = new CostModel();
+        BigDecimal payroll = BigDecimal.valueOf(2100.0);
+
+        assertTrue(sustainable < increased);
+        assertTrue(increased < crunch);
+        assertEquals(0.0, costs.calculateOvertimeCost(
+                payroll, WorkIntensity.SUSTAINABLE, config).doubleValue());
+        assertTrue(costs.calculateOvertimeCost(payroll, WorkIntensity.INCREASED, config)
+                .compareTo(BigDecimal.ZERO) > 0);
+        assertTrue(costs.calculateOvertimeCost(payroll, WorkIntensity.CRUNCH, config)
+                .compareTo(costs.calculateOvertimeCost(payroll, WorkIntensity.INCREASED, config)) > 0);
+        assertEquals(48, config.getWorkIntensity().hours(WorkIntensity.INCREASED));
+        assertEquals(60, config.getWorkIntensity().hours(WorkIntensity.CRUNCH));
+    }
+
+    @Test
+    void bridgeAcceptsWorkIntensityAndRejectsInvalidSettings() throws Exception {
+        JavaBridge bridge = new JavaBridge();
+        bridge.startSimulation("small-web-app", "812");
+        JsonNode state = objectMapper.readTree(bridge.setWorkIntensity("CRUNCH"));
+
+        assertEquals("CRUNCH", state.get("workIntensity").textValue());
+        assertEquals(60, state.get("workIntensityHours").intValue());
+        assertThrows(IllegalArgumentException.class, () -> bridge.setWorkIntensity("EXTREME"));
+        assertThrows(IllegalArgumentException.class, () -> {
+            var config = ConfigurationLoader.loadDefault();
+            config.getWorkIntensity().setCrunchHours(48);
+            config.validate();
+        });
+    }
+
+    @Test
+    void fatigueAccumulatesGraduallyRecoversSlowlyAndHasNonlinearEffects() {
+        var config = ConfigurationLoader.loadDefault();
+        FatigueModel model = new FatigueModel();
+        assertEquals(0.0, model.updateFatigue(0.0, WorkIntensity.SUSTAINABLE, config));
+        Employee increased = new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100);
+        Employee crunch = new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100);
+        for (int week = 0; week < 4; week++) {
+            increased.setFatigue(model.updateFatigue(increased, WorkIntensity.INCREASED, 0.5, config));
+            crunch.setFatigue(model.updateFatigue(crunch, WorkIntensity.CRUNCH, 0.5, config));
+            increased.recordWorkIntensity(true);
+            crunch.recordWorkIntensity(true);
+        }
+        assertTrue(increased.getFatigue() > 0.0);
+        assertTrue(crunch.getFatigue() > increased.getFatigue());
+
+        double recoveredOnce = model.updateFatigue(0.75, WorkIntensity.SUSTAINABLE, config);
+        assertTrue(recoveredOnce < 0.75);
+        assertTrue(recoveredOnce > 0.0);
+        assertTrue((1.0 - model.productivityModifier(0.8, config))
+                > 2.0 * (1.0 - model.productivityModifier(0.4, config)));
+        assertTrue(model.defectModifier(0.8, config) > model.defectModifier(0.4, config));
+        assertTrue(model.qaEffectivenessModifier(0.8, config)
+                < model.qaEffectivenessModifier(0.4, config));
+        assertEquals("Severe Burnout", model.category(0.9));
+    }
+
+    @Test
+    void moraleRecoversGraduallyAndStressRaisesEmployeeTurnoverRisk() {
+        var config = ConfigurationLoader.loadDefault();
+        Employee employee = new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100);
+        employee.setMorale(config.getMorale().getBaseline());
+        MoraleModel morale = new MoraleModel();
+        double healthyMorale = employee.getMorale();
+        employee.setFatigue(0.9);
+        for (int week = 0; week < 4; week++) {
+            employee.setMorale(morale.updateMorale(employee, WorkIntensity.CRUNCH, 0.9, config));
+            employee.recordWorkIntensity(true);
+        }
+        double stressedMorale = employee.getMorale();
+        assertTrue(stressedMorale < healthyMorale);
+        assertTrue(stressedMorale >= 0.0);
+
+        employee.setFatigue(0.0);
+        for (int week = 0; week < 4; week++) {
+            employee.setMorale(morale.updateMorale(employee, WorkIntensity.SUSTAINABLE, 0.0, config));
+            employee.recordWorkIntensity(false);
+        }
+        assertTrue(employee.getMorale() > stressedMorale);
+        assertTrue(employee.getMorale() <= 1.0);
+
+        Employee healthyEmployee = new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100);
+        double healthyRisk = new TurnoverModel().departureProbability(healthyEmployee, 0.0, config);
+        employee.setFatigue(1.0);
+        employee.setMorale(0.0);
+        employee.recordWorkIntensity(true);
+        double stressedRisk = new TurnoverModel().departureProbability(employee, 1.0, config);
+        assertTrue(healthyRisk < 0.01);
+        assertTrue(stressedRisk > healthyRisk);
+        assertTrue(stressedRisk <= config.getTurnover().getMaxRate());
+    }
+
+    @Test
+    void turnoverUsesSeededIndividualDecisionsAndDepartedStaffStopContributing() {
+        var config = ConfigurationLoader.loadDefault();
+        Team first = new Team();
+        Team second = new Team();
+        for (int index = 0; index < 12; index++) {
+            first.addEmployee(new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100));
+            second.addEmployee(new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100));
+        }
+        config.getTurnover().setBaseRate(0.35);
+        config.getTurnover().setMaxRate(0.35);
+        TurnoverModel model = new TurnoverModel();
+        List<Employee> firstDepartures = model.resolveDepartures(
+                first, 0.0, config, new Random(90210));
+        List<Employee> secondDepartures = model.resolveDepartures(
+                second, 0.0, config, new Random(90210));
+
+        assertEquals(firstDepartures.size(), secondDepartures.size());
+        assertEquals(12 - firstDepartures.size(), first.totalCount());
+        assertEquals(first.totalCount() * 2100.0,
+                new CostModel().calculateWeeklyPayroll(first, config).doubleValue());
+
+        Team allDepart = new Team();
+        allDepart.addEmployee(new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100));
+        config.getTurnover().setBaseRate(1.0);
+        config.getTurnover().setMaxRate(1.0);
+        model.resolveDepartures(allDepart, 0.0, config, new Random(1));
+        assertEquals(0.0, new CostModel().calculateWeeklyPayroll(allDepart, config).doubleValue());
+        assertEquals(0, new MentoringModel().calculate(allDepart, 0, config).capacity());
+        assertEquals(0.0, new ProductivityModel().calculateForTeam(
+                allDepart, WorkIntensity.SUSTAINABLE, 0.0, config,
+                new MentoringModel().calculate(allDepart, 0, config)).totalEffectiveCapacity());
+    }
+
+    @Test
+    void crunchReducesPerformanceAfterFatigueBuildsAndPreservesHiddenStateBoundary() throws Exception {
+        var config = ConfigurationLoader.loadDefault();
+        Team team = new Team();
+        Employee developer = new Employee(Role.DEVELOPER, ExperienceLevel.MID_LEVEL, 2100);
+        Employee qa = new Employee(Role.QA_ENGINEER, ExperienceLevel.MID_LEVEL, 1900);
+        team.addEmployee(developer);
+        team.addEmployee(qa);
+        ProductivityModel model = new ProductivityModel();
+        var mentoring = new MentoringModel().calculate(team, 0, config);
+        double earlyCrunch = model.calculateForTeam(
+                team, WorkIntensity.CRUNCH, 0.0, config, mentoring).developerEffectiveCapacity();
+        FatigueModel fatigue = new FatigueModel();
+        for (int week = 0; week < 12; week++) {
+            developer.setFatigue(fatigue.updateFatigue(
+                    developer, WorkIntensity.CRUNCH, 0.6, config));
+            qa.setFatigue(fatigue.updateFatigue(qa, WorkIntensity.CRUNCH, 0.6, config));
+            developer.recordWorkIntensity(true);
+            qa.recordWorkIntensity(true);
+        }
+        double lateCrunch = model.calculateForTeam(
+                team, WorkIntensity.CRUNCH, 0.0, config,
+                new MentoringModel().calculate(team, 0, config)).developerEffectiveCapacity();
+        assertTrue(lateCrunch < earlyCrunch);
+        assertTrue(fatigue.qaEffectivenessModifier(qa.getFatigue(), config) < 1.0);
+        DefectModel defects = new DefectModel();
+        assertTrue(defects.discoveryProbability(1.0, TestingPriority.NORMAL, 0.8, config)
+                < defects.discoveryProbability(1.0, TestingPriority.NORMAL, 0.0, config));
+        assertTrue(defects.defectProbability(0.08, 0.8, 0.0, 0.0, 0.0, config)
+                > defects.defectProbability(0.08, 0.0, 0.0, 0.0, 0.0, config));
+
+        SimulationEngine engine = newEngine(351L, null);
+        engine.setWorkIntensity(WorkIntensity.CRUNCH);
+        engine.advanceWeek();
+        JsonNode dto = objectMapper.readTree(objectMapper.writeValueAsString(engine.getCurrentState()));
+        assertEquals("CRUNCH", dto.get("workIntensity").textValue());
+        assertEquals(60, dto.get("workIntensityHours").intValue());
+        assertTrue(dto.has("averageFatigueHealth"));
+        assertTrue(dto.has("turnoverRisk"));
+        assertFalse(dto.has("trueProgress"));
+        assertFalse(dto.has("unknownRework"));
+        assertEquals(WorkIntensity.CRUNCH, engine.getHistory().get(0).getWorkIntensity());
+        assertTrue(engine.getHistory().get(0).getOvertimeCost().doubleValue() > 0.0);
+        assertTrue(engine.getHistory().get(0).getMaximumFatigue() >= 0.0);
+        assertTrue(engine.getHistory().get(0).getAverageMorale() >= 0.0);
+        assertEquals(1.0, engine.getHistory().get(0).getAverageOvertimeStreak());
+    }
+
+    @Test
+    void pendingHiresDoNotAccumulateFatigueBeforeJoining() {
+        SimulationEngine engine = newEngine(418L, null);
+        engine.hire(new HiringDecision(Role.DEVELOPER, ExperienceLevel.SENIOR, 1));
+        Employee pending = engine.getPendingHires().get(0).getEmployee();
+        engine.setWorkIntensity(WorkIntensity.CRUNCH);
+        engine.advanceWeek();
+
+        assertFalse(pending.isActive());
+        assertEquals(0.0, pending.getFatigue());
+        assertEquals(0, pending.getConsecutiveOvertimeWeeks());
+    }
+
+    @Test
+    void seededCrunchComparisonShowsImmediateBenefitAndDelayedFatigue() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        scenario.setScope(Map.of(
+                "requirements", 0.0,
+                "design", 0.0,
+                "development", 30_000.0,
+                "testing", 15_000.0,
+                "deployment", 0.0));
+        scenario.setBudget(BigDecimal.valueOf(5_000_000));
+        var sustainableConfig = ConfigurationLoader.loadDefault();
+        var crunchConfig = ConfigurationLoader.loadDefault();
+        Map<Role, Integer> team = teamCounts(2, 2, 0, 0);
+        SimulationEngine sustainable = new SimulationEngine(
+                scenario, sustainableConfig, 711L, team);
+        SimulationEngine crunch = new SimulationEngine(
+                scenario, crunchConfig, 711L, team);
+        sustainable.setWorkIntensity(WorkIntensity.SUSTAINABLE);
+        crunch.setWorkIntensity(WorkIntensity.CRUNCH);
+        sustainable.advanceWeek();
+        crunch.advanceWeek();
+        assertTrue(crunch.getProject().getWorkState().getTotalWorkAttemptedThisWeek()
+                > sustainable.getProject().getWorkState().getTotalWorkAttemptedThisWeek());
+        assertTrue(crunch.getHistory().get(0).getOvertimeCost().doubleValue() > 0.0);
+
+        for (int week = 0; week < 5; week++) {
+            sustainable.advanceWeek();
+            crunch.advanceWeek();
+        }
+        assertTrue(crunch.getHistory().get(5).getAverageFatigue()
+                > sustainable.getHistory().get(5).getAverageFatigue());
+        assertTrue(crunch.getHistory().get(5).getAverageOvertimeStreak() >= 6.0);
+    }
+
+    @Test
+    void controlledHighTurnoverRecordsDeparturesAndStopsFuturePayroll() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var config = ConfigurationLoader.loadDefault();
+        config.getTurnover().setBaseRate(1.0);
+        config.getTurnover().setMaxRate(1.0);
+        SimulationEngine engine = new SimulationEngine(
+                scenario, config, 77L, teamCounts(2, 1, 0, 0));
+        engine.advanceWeek();
+
+        var snapshot = engine.getHistory().get(0);
+        assertEquals(3, snapshot.getEmployeesDeparted().size());
+        assertEquals(0, engine.getTeam().totalCount());
+        assertEquals(0.0, new CostModel().calculateWeeklyPayroll(engine.getTeam(), config).doubleValue());
+        assertTrue(snapshot.getWeeklyPayroll().doubleValue() > 0.0);
+        assertEquals(0, engine.getCurrentState().getTeamCounts().values().stream()
+                .mapToInt(Integer::intValue).sum());
+    }
+
+    @Test
+    void schedulePressureUsesTestingBacklogAndVisibleReworkOnly() {
+        var config = ConfigurationLoader.loadDefault();
+        Project project = new Project("stress", "Stress", 10, BigDecimal.valueOf(100_000));
+        project.getWorkState().setTotalWork(ProjectPhase.DEVELOPMENT, 1_000.0);
+        project.getWorkState().setTotalWork(ProjectPhase.TESTING, 1_000.0);
+        SchedulePressureModel pressure = new SchedulePressureModel();
+        double initial = pressure.calculate(project, 1.0, 1.0, 1.0,
+                0.0, 0.0, config);
+        project.getWorkState().addTestableWork(ProjectPhase.DEVELOPMENT, 100.0);
+        double withBacklog = pressure.calculate(project, 1.0, 1.0, 1.0,
+                0.0, project.getWorkState().getTotalTestingBacklog(), config);
+        project.getWorkState().addKnownRework(ProjectPhase.DEVELOPMENT, 100.0);
+        double withKnownRework = pressure.calculate(project, 1.0, 1.0, 1.0,
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalTestingBacklog(), config);
+        project.getWorkState().addUnknownRework(ProjectPhase.DEVELOPMENT, 200.0);
+        double withHiddenRework = pressure.calculate(project, 1.0, 1.0, 1.0,
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalTestingBacklog(), config);
+
+        assertTrue(withBacklog > initial);
+        assertTrue(withKnownRework > withBacklog);
+        assertEquals(withKnownRework, withHiddenRework);
+    }
+
     private SimulationEngine newEngine(long seed, Map<Role, Integer> team) {
         var scenario = ScenarioLoader.loadScenario("small-web-app");
         var configuration = ConfigurationLoader.loadDefault();
@@ -662,7 +944,9 @@ class SimulationEngineTest {
                 snapshot.getWeek() + "|" + snapshot.getSpent() + "|"
                         + snapshot.getPerceivedProgress() + "|" + snapshot.getTrueProgress() + "|"
                         + snapshot.getAverageFatigue() + "|" + snapshot.getTeamCounts() + "|"
-                        + snapshot.getKnownRework() + "|" + snapshot.getUnknownRework()));
+                        + snapshot.getKnownRework() + "|" + snapshot.getUnknownRework() + "|"
+                        + snapshot.getAverageMorale() + "|" + snapshot.getWorkIntensity() + "|"
+                        + snapshot.getOvertimeCost() + "|" + snapshot.getEmployeesDeparted()));
         return result;
     }
 }

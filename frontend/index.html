@@ -104,6 +104,7 @@
             </select>
             <span id="seedValue" class="muted"></span>
           </div>
+          <p id="workIntensityHelp" class="muted">Sustainable hours provide normal recovery.</p>
           <p id="dashboardError" class="error" role="alert"></p>
         </div>
         <div class="grid">
@@ -111,6 +112,7 @@
           <div class="metric"><div class="metric-label">Budget remaining</div><div id="remainingValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Weekly burn rate</div><div id="burnRateValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Forecast final cost</div><div id="forecastCostValue" class="metric-value">-</div></div>
+          <div class="metric"><div class="metric-label">Overtime premium this week</div><div id="overtimeCostValue" class="metric-value">-</div></div>
         </div>
         <div class="two-column">
           <div class="card">
@@ -128,6 +130,9 @@
               <div><div class="metric-label">Budget</div><p id="budgetHealth" class="health">-</p></div>
               <div><div class="metric-label">Quality</div><p id="qualityHealth" class="health">-</p></div>
               <div><div class="metric-label">Team morale</div><p id="moraleHealth" class="health">-</p></div>
+              <div><div class="metric-label">Average fatigue</div><p id="fatigueHealth" class="health">-</p></div>
+              <div><div class="metric-label">Turnover risk</div><p id="turnoverRisk" class="health">-</p></div>
+              <div><div class="metric-label">Departures this week</div><p id="departuresValue" class="health">0</p></div>
               <div><div class="metric-label">Known rework</div><p id="knownReworkValue" class="health">0</p></div>
               <div><div class="metric-label">Defects found this week</div><p id="defectsFoundValue" class="health">0</p></div>
               <div><div class="metric-label">Testing backlog</div><p id="testingBacklogValue" class="health">-</p></div>

@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.EnumMap;
 
 /** Internal end-of-week record; hidden fields are not part of gameplay DTOs. */
 public class WeeklySnapshot {
@@ -45,6 +44,13 @@ public class WeeklySnapshot {
     private final String qualityHealth;
     private final String testingBacklogStatus;
     private final TestingPriority testingPriority;
+    private final WorkIntensity workIntensity;
+    private final double maximumFatigue;
+    private final double averageMorale;
+    private final BigDecimal overtimeCost;
+    private final double averageOvertimeStreak;
+    private final String turnoverRisk;
+    private final List<String> employeesDeparted;
 
     public WeeklySnapshot(int week, BigDecimal spent, BigDecimal remainingBudget,
                           BigDecimal weeklyCost, double perceivedProgress,
@@ -67,7 +73,10 @@ public class WeeklySnapshot {
                           Map<ProjectPhase, Double> defectsDiscoveredByPhase,
                           double testingBacklog, double qaCapacity, int releasedDefects,
                           String qualityHealth, String testingBacklogStatus,
-                          TestingPriority testingPriority) {
+                          TestingPriority testingPriority, WorkIntensity workIntensity,
+                          double maximumFatigue, double averageMorale, BigDecimal overtimeCost,
+                          double averageOvertimeStreak, String turnoverRisk,
+                          List<String> employeesDeparted) {
         if (week < 1) {
             throw new IllegalArgumentException("A weekly snapshot must represent Week 1 or later");
         }
@@ -111,6 +120,13 @@ public class WeeklySnapshot {
         this.qualityHealth = qualityHealth;
         this.testingBacklogStatus = testingBacklogStatus;
         this.testingPriority = testingPriority;
+        this.workIntensity = workIntensity;
+        this.maximumFatigue = SimulationValues.unitInterval(maximumFatigue);
+        this.averageMorale = SimulationValues.unitInterval(averageMorale);
+        this.overtimeCost = overtimeCost;
+        this.averageOvertimeStreak = SimulationValues.nonNegativeFinite(averageOvertimeStreak);
+        this.turnoverRisk = turnoverRisk;
+        this.employeesDeparted = List.copyOf(employeesDeparted);
     }
 
     public int getWeek() {
@@ -222,6 +238,13 @@ public class WeeklySnapshot {
     public String getQualityHealth() { return qualityHealth; }
     public String getTestingBacklogStatus() { return testingBacklogStatus; }
     public TestingPriority getTestingPriority() { return testingPriority; }
+    public WorkIntensity getWorkIntensity() { return workIntensity; }
+    public double getMaximumFatigue() { return maximumFatigue; }
+    public double getAverageMorale() { return averageMorale; }
+    public BigDecimal getOvertimeCost() { return overtimeCost; }
+    public double getAverageOvertimeStreak() { return averageOvertimeStreak; }
+    public String getTurnoverRisk() { return turnoverRisk; }
+    public List<String> getEmployeesDeparted() { return employeesDeparted; }
 
     private Map<ProjectPhase, Double> immutablePhaseMap(Map<ProjectPhase, Double> source) {
         EnumMap<ProjectPhase, Double> copy = new EnumMap<>(ProjectPhase.class);

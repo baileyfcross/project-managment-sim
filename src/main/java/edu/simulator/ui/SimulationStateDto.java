@@ -1,6 +1,6 @@
 package edu.simulator.ui;
 
-import edu.simulator.simulation.WorkIntensity;
+import edu.simulator.model.WorkIntensity;
 import edu.simulator.model.TestingPriority;
 
 import java.math.BigDecimal;
@@ -36,6 +36,11 @@ public class SimulationStateDto {
     private final String testingBacklogStatus;
     private final TestingPriority testingPriority;
     private final double qaCapacity;
+    private final int workIntensityHours;
+    private final String averageFatigueHealth;
+    private final String turnoverRisk;
+    private final int employeesDepartedThisWeek;
+    private final BigDecimal overtimeCost;
 
     public SimulationStateDto(int week, long seed, int deadline, BigDecimal budget,
                               BigDecimal spent, BigDecimal remainingBudget,
@@ -47,7 +52,9 @@ public class SimulationStateDto {
                               boolean complete, Map<String, Double> phaseProgress,
                               double knownRework, double defectsDiscoveredThisWeek,
                               String testingBacklogStatus, TestingPriority testingPriority,
-                              double qaCapacity) {
+                              double qaCapacity, int workIntensityHours,
+                              String averageFatigueHealth, String turnoverRisk,
+                              int employeesDepartedThisWeek, BigDecimal overtimeCost) {
         this.week = week;
         this.seed = Long.toString(seed);
         this.deadline = deadline;
@@ -72,6 +79,11 @@ public class SimulationStateDto {
         this.testingBacklogStatus = testingBacklogStatus;
         this.testingPriority = testingPriority;
         this.qaCapacity = qaCapacity;
+        this.workIntensityHours = workIntensityHours;
+        this.averageFatigueHealth = averageFatigueHealth;
+        this.turnoverRisk = turnoverRisk;
+        this.employeesDepartedThisWeek = employeesDepartedThisWeek;
+        this.overtimeCost = overtimeCost;
     }
 
     public int getWeek() {
@@ -152,4 +164,9 @@ public class SimulationStateDto {
     public String getTestingBacklogStatus() { return testingBacklogStatus; }
     public TestingPriority getTestingPriority() { return testingPriority; }
     public double getQaCapacity() { return qaCapacity; }
+    public int getWorkIntensityHours() { return workIntensityHours; }
+    public String getAverageFatigueHealth() { return averageFatigueHealth; }
+    public String getTurnoverRisk() { return turnoverRisk; }
+    public int getEmployeesDepartedThisWeek() { return employeesDepartedThisWeek; }
+    public BigDecimal getOvertimeCost() { return overtimeCost; }
 }

@@ -1,6 +1,7 @@
 package edu.simulator.configuration;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import edu.simulator.model.WorkIntensity;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SimulationConfiguration {
@@ -18,6 +19,8 @@ public class SimulationConfiguration {
     private Coordination coordination = new Coordination();
     private Schedule schedule = new Schedule();
     private Turnover turnover = new Turnover();
+    private WorkIntensitySettings workIntensity = new WorkIntensitySettings();
+    private Morale morale = new Morale();
 
     public Productivity getProductivity() {
         return productivity;
@@ -114,11 +117,28 @@ public class SimulationConfiguration {
         this.turnover = turnover;
     }
 
+    public WorkIntensitySettings getWorkIntensity() {
+        return workIntensity;
+    }
+
+    public void setWorkIntensity(WorkIntensitySettings workIntensity) {
+        this.workIntensity = workIntensity;
+    }
+
+    public Morale getMorale() {
+        return morale;
+    }
+
+    public void setMorale(Morale morale) {
+        this.morale = morale;
+    }
+
     public void validate() {
         if (productivity == null || quality == null || qa == null || fatigue == null
                 || onboarding == null || costs == null || initialTeamExperience == null
                 || workAllocation == null || phaseReadiness == null || testing == null || mentoring == null
-                || coordination == null || schedule == null || turnover == null) {
+                || coordination == null || schedule == null || turnover == null
+                || workIntensity == null || morale == null) {
             throw new IllegalArgumentException("Simulation configuration sections cannot be null");
         }
         if (initialTeamExperience.developer == null || initialTeamExperience.qaEngineer == null
@@ -132,7 +152,18 @@ public class SimulationConfiguration {
                 quality.baseDefectRate, quality.defectCap, quality.reworkCreationRate,
                 qa.baseDetectionRate, qa.capacityMultiplier, fatigue.recoveryRate,
                 fatigue.increasedWorkRate, fatigue.crunchRate, fatigue.maxValue,
-                fatigue.burnoutThreshold,                 onboarding.initialEffectiveness,
+                fatigue.burnoutThreshold, fatigue.pressureAccumulationRate,
+                fatigue.overtimeStreakAccumulationRate, fatigue.fatigueAccumulationCurve,
+                fatigue.productivityMaxPenalty, fatigue.defectMaxIncrease,
+                fatigue.qaEffectivenessMaxPenalty, fatigue.mentoringMaxPenalty,
+                fatigue.coordinationMaxPenalty,
+                morale.baseline, morale.fatigueWeight, morale.overtimeWeight,
+                morale.pressureWeight, morale.recoveryRate, morale.overtimeStreakWeight,
+                workIntensity.sustainableHours, workIntensity.increasedHours,
+                workIntensity.crunchHours, workIntensity.sustainableEffortMultiplier,
+                workIntensity.increasedEffortMultiplier, workIntensity.crunchEffortMultiplier,
+                workIntensity.increasedDefectMultiplier, workIntensity.crunchDefectMultiplier,
+                onboarding.initialEffectiveness,
                 mentoring.seniorCapacity, mentoring.midLevelCapacity,
                 mentoring.juniorDemand, mentoring.onboardingDemand,
                 mentoring.minimumProgressFactor, mentoring.maximumDirectProductivityLoss,
@@ -156,13 +187,24 @@ public class SimulationConfiguration {
                 costs.overtimePremiumRate, schedule.pressureWeight,
                 schedule.deadlineUrgencyWeight, schedule.targetScheduleHealth,
                 turnover.baseRate, turnover.fatigueWeight, turnover.pressureWeight,
-                turnover.moraleWeight, turnover.maxRate
+                turnover.moraleWeight, turnover.overtimeStreakWeight, turnover.maxRate
         );
         validateNonNegative(
                 costs.juniorDeveloperWeekly, costs.midDeveloperWeekly, costs.seniorDeveloperWeekly
         );
         if (quality.baseDefectRate > 1 || quality.defectCap > 1 || qa.baseDetectionRate > 1
                 || fatigue.maxValue > 1 || fatigue.burnoutThreshold > 1
+                || morale.baseline > 1 || morale.fatigueWeight > 1 || morale.overtimeWeight > 1
+                || morale.pressureWeight > 1 || morale.recoveryRate > 1
+                || morale.overtimeStreakWeight > 1
+                || workIntensity.sustainableEffortMultiplier > 2
+                || workIntensity.increasedEffortMultiplier > 2
+                || workIntensity.crunchEffortMultiplier > 2
+                || workIntensity.increasedDefectMultiplier > 5
+                || workIntensity.crunchDefectMultiplier > 5
+                || fatigue.productivityMaxPenalty > 1 || fatigue.qaEffectivenessMaxPenalty > 1
+                || fatigue.mentoringMaxPenalty > 1 || fatigue.coordinationMaxPenalty > 1
+                || fatigue.fatigueAccumulationCurve > 5 || fatigue.defectMaxIncrease > 5
                 || productivity.coordinationMaxPenalty > 1 || turnover.maxRate > 1
                 || onboarding.initialEffectiveness > 1 || mentoring.minimumProgressFactor > 1
                 || mentoring.maximumDirectProductivityLoss > 1
@@ -188,6 +230,26 @@ public class SimulationConfiguration {
                 || costs.hiringDelayWeeks < 0 || costs.juniorHiringDelayWeeks < 0
                 || costs.midHiringDelayWeeks < 0 || costs.seniorHiringDelayWeeks < 0) {
             throw new IllegalArgumentException("Onboarding durations must be positive and hiring delay non-negative");
+        }
+        if (workIntensity.sustainableHours <= 0 || workIntensity.sustainableHours > 100
+                || workIntensity.increasedHours <= workIntensity.sustainableHours
+                || workIntensity.increasedHours > 100
+                || workIntensity.crunchHours <= workIntensity.increasedHours
+                || workIntensity.crunchHours > 100
+                || workIntensity.sustainableEffortMultiplier <= 0
+                || workIntensity.increasedEffortMultiplier <= workIntensity.sustainableEffortMultiplier
+                || workIntensity.increasedDefectMultiplier <= 0
+                || workIntensity.crunchDefectMultiplier <= 0
+                || workIntensity.crunchEffortMultiplier <= workIntensity.increasedEffortMultiplier
+                || workIntensity.crunchDefectMultiplier < workIntensity.increasedDefectMultiplier) {
+            throw new IllegalArgumentException("Work intensity hours and effort multipliers must increase by level");
+        }
+        if (fatigue.maxValue <= 0.0 || morale.baseline <= 0.0
+                || turnover.baseRate > turnover.maxRate) {
+            throw new IllegalArgumentException("Fatigue, morale, and turnover baseline settings are invalid");
+        }
+        if (turnover.overtimeStreakCap < 1) {
+            throw new IllegalArgumentException("Turnover overtime streak cap must be positive");
         }
     }
 
@@ -325,6 +387,14 @@ public class SimulationConfiguration {
         private double crunchRate = 0.06;
         private double maxValue = 1.0;
         private double burnoutThreshold = 0.6;
+        private double pressureAccumulationRate = 0.025;
+        private double overtimeStreakAccumulationRate = 0.006;
+        private double fatigueAccumulationCurve = 0.7;
+        private double productivityMaxPenalty = 0.6;
+        private double defectMaxIncrease = 1.2;
+        private double qaEffectivenessMaxPenalty = 0.3;
+        private double mentoringMaxPenalty = 0.25;
+        private double coordinationMaxPenalty = 0.12;
 
         public double getRecoveryRate() {
             return recoveryRate;
@@ -365,6 +435,25 @@ public class SimulationConfiguration {
         public void setBurnoutThreshold(double burnoutThreshold) {
             this.burnoutThreshold = burnoutThreshold;
         }
+
+        public double getPressureAccumulationRate() { return pressureAccumulationRate; }
+        public void setPressureAccumulationRate(double value) { pressureAccumulationRate = value; }
+        public double getOvertimeStreakAccumulationRate() { return overtimeStreakAccumulationRate; }
+        public void setOvertimeStreakAccumulationRate(double value) {
+            overtimeStreakAccumulationRate = value;
+        }
+        public double getFatigueAccumulationCurve() { return fatigueAccumulationCurve; }
+        public void setFatigueAccumulationCurve(double value) { fatigueAccumulationCurve = value; }
+        public double getProductivityMaxPenalty() { return productivityMaxPenalty; }
+        public void setProductivityMaxPenalty(double value) { productivityMaxPenalty = value; }
+        public double getDefectMaxIncrease() { return defectMaxIncrease; }
+        public void setDefectMaxIncrease(double value) { defectMaxIncrease = value; }
+        public double getQaEffectivenessMaxPenalty() { return qaEffectivenessMaxPenalty; }
+        public void setQaEffectivenessMaxPenalty(double value) { qaEffectivenessMaxPenalty = value; }
+        public double getMentoringMaxPenalty() { return mentoringMaxPenalty; }
+        public void setMentoringMaxPenalty(double value) { mentoringMaxPenalty = value; }
+        public double getCoordinationMaxPenalty() { return coordinationMaxPenalty; }
+        public void setCoordinationMaxPenalty(double value) { coordinationMaxPenalty = value; }
     }
 
     public static class Onboarding {
@@ -732,10 +821,12 @@ public class SimulationConfiguration {
     }
 
     public static class Turnover {
-        private double baseRate = 0.012;
-        private double fatigueWeight = 0.25;
-        private double pressureWeight = 0.18;
-        private double moraleWeight = 0.12;
+        private double baseRate = 0.002;
+        private double fatigueWeight = 0.12;
+        private double pressureWeight = 0.06;
+        private double moraleWeight = 0.08;
+        private double overtimeStreakWeight = 0.012;
+        private int overtimeStreakCap = 8;
         private double maxRate = 0.2;
 
         public double getBaseRate() {
@@ -770,6 +861,11 @@ public class SimulationConfiguration {
             this.moraleWeight = moraleWeight;
         }
 
+        public double getOvertimeStreakWeight() { return overtimeStreakWeight; }
+        public void setOvertimeStreakWeight(double value) { overtimeStreakWeight = value; }
+        public int getOvertimeStreakCap() { return overtimeStreakCap; }
+        public void setOvertimeStreakCap(int value) { overtimeStreakCap = value; }
+
         public double getMaxRate() {
             return maxRate;
         }
@@ -777,5 +873,75 @@ public class SimulationConfiguration {
         public void setMaxRate(double maxRate) {
             this.maxRate = maxRate;
         }
+    }
+
+    public static class WorkIntensitySettings {
+        private int sustainableHours = 40;
+        private int increasedHours = 48;
+        private int crunchHours = 60;
+        private double sustainableEffortMultiplier = 1.0;
+        private double increasedEffortMultiplier = 1.17;
+        private double crunchEffortMultiplier = 1.35;
+        private double increasedDefectMultiplier = 1.08;
+        private double crunchDefectMultiplier = 1.18;
+
+        public int getSustainableHours() { return sustainableHours; }
+        public void setSustainableHours(int value) { sustainableHours = value; }
+        public int getIncreasedHours() { return increasedHours; }
+        public void setIncreasedHours(int value) { increasedHours = value; }
+        public int getCrunchHours() { return crunchHours; }
+        public void setCrunchHours(int value) { crunchHours = value; }
+        public double getSustainableEffortMultiplier() { return sustainableEffortMultiplier; }
+        public void setSustainableEffortMultiplier(double value) {
+            sustainableEffortMultiplier = value;
+        }
+        public double getIncreasedEffortMultiplier() { return increasedEffortMultiplier; }
+        public void setIncreasedEffortMultiplier(double value) {
+            increasedEffortMultiplier = value;
+        }
+        public double getCrunchEffortMultiplier() { return crunchEffortMultiplier; }
+        public void setCrunchEffortMultiplier(double value) { crunchEffortMultiplier = value; }
+        public double getIncreasedDefectMultiplier() { return increasedDefectMultiplier; }
+        public void setIncreasedDefectMultiplier(double value) { increasedDefectMultiplier = value; }
+        public double getCrunchDefectMultiplier() { return crunchDefectMultiplier; }
+        public void setCrunchDefectMultiplier(double value) { crunchDefectMultiplier = value; }
+
+        public int hours(WorkIntensity intensity) {
+            return switch (intensity) {
+                case SUSTAINABLE -> sustainableHours;
+                case INCREASED -> increasedHours;
+                case CRUNCH -> crunchHours;
+            };
+        }
+
+        public double effortMultiplier(WorkIntensity intensity) {
+            return switch (intensity) {
+                case SUSTAINABLE -> sustainableEffortMultiplier;
+                case INCREASED -> increasedEffortMultiplier;
+                case CRUNCH -> crunchEffortMultiplier;
+            };
+        }
+    }
+
+    public static class Morale {
+        private double baseline = 0.7;
+        private double fatigueWeight = 0.025;
+        private double overtimeWeight = 0.012;
+        private double pressureWeight = 0.025;
+        private double recoveryRate = 0.025;
+        private double overtimeStreakWeight = 0.002;
+
+        public double getBaseline() { return baseline; }
+        public void setBaseline(double value) { baseline = value; }
+        public double getFatigueWeight() { return fatigueWeight; }
+        public void setFatigueWeight(double value) { fatigueWeight = value; }
+        public double getOvertimeWeight() { return overtimeWeight; }
+        public void setOvertimeWeight(double value) { overtimeWeight = value; }
+        public double getPressureWeight() { return pressureWeight; }
+        public void setPressureWeight(double value) { pressureWeight = value; }
+        public double getRecoveryRate() { return recoveryRate; }
+        public void setRecoveryRate(double value) { recoveryRate = value; }
+        public double getOvertimeStreakWeight() { return overtimeStreakWeight; }
+        public void setOvertimeStreakWeight(double value) { overtimeStreakWeight = value; }
     }
 }

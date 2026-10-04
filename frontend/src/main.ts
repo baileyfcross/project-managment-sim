@@ -36,6 +36,11 @@ type SimulationState = {
   testingBacklogStatus: string;
   testingPriority: string;
   qaCapacity: number;
+  workIntensityHours: number;
+  averageFatigueHealth: string;
+  turnoverRisk: string;
+  employeesDepartedThisWeek: number;
+  overtimeCost: number;
 };
 
 type HiringOption = {
@@ -140,6 +145,17 @@ function renderDashboard(state: SimulationState): void {
   document.getElementById('budgetHealth')!.textContent = state.budgetHealth;
   document.getElementById('qualityHealth')!.textContent = state.qualityHealth;
   document.getElementById('moraleHealth')!.textContent = state.moraleHealth;
+  document.getElementById('fatigueHealth')!.textContent = state.averageFatigueHealth;
+  document.getElementById('turnoverRisk')!.textContent = state.turnoverRisk;
+  document.getElementById('departuresValue')!.textContent = String(state.employeesDepartedThisWeek);
+  document.getElementById('overtimeCostValue')!.textContent = formatCurrency(state.overtimeCost);
+  const intensityDescriptions: Record<string, string> = {
+    SUSTAINABLE: 'Sustainable effort with normal recovery and no overtime premium.',
+    INCREASED: 'More short-term capacity; fatigue and payroll cost can increase.',
+    CRUNCH: 'Maximum short-term effort; sustained use raises fatigue and quality risk.'
+  };
+  document.getElementById('workIntensityHelp')!.textContent =
+    `${state.workIntensityHours}-hour workweek. ${intensityDescriptions[state.workIntensity] ?? ''}`;
   document.getElementById('knownReworkValue')!.textContent = String(Math.round(state.knownRework));
   document.getElementById('defectsFoundValue')!.textContent = String(Math.round(state.defectsDiscoveredThisWeek));
   document.getElementById('testingBacklogValue')!.textContent = state.testingBacklogStatus;

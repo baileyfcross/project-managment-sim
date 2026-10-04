@@ -10,6 +10,7 @@ public class Employee {
     private int weeksOnProject;
     private double fatigue;
     private double morale;
+    private int consecutiveOvertimeWeeks;
     private double baseWeeklyCost;
     private double onboardingProgress = 1.0;
     private int onboardingDurationWeeks;
@@ -75,6 +76,18 @@ public class Employee {
 
     public void setMorale(double morale) {
         this.morale = clamp(morale);
+    }
+
+    public int getConsecutiveOvertimeWeeks() {
+        return consecutiveOvertimeWeeks;
+    }
+
+    public void recordWorkIntensity(boolean overtime) {
+        if (!overtime) {
+            consecutiveOvertimeWeeks = 0;
+        } else if (consecutiveOvertimeWeeks < Integer.MAX_VALUE) {
+            consecutiveOvertimeWeeks++;
+        }
     }
 
     public double getBaseWeeklyCost() {

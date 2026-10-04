@@ -3,6 +3,7 @@ package edu.simulator.simulation;
 import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.model.ProjectPhase;
 import edu.simulator.model.TestingPriority;
+import edu.simulator.model.WorkIntensity;
 import edu.simulator.model.WorkState;
 
 import java.util.Random;
@@ -11,7 +12,7 @@ public class DefectModel {
     public double defectProbability(double baseRate, double fatigue, double schedulePressure,
                                   double coordinationPenalty, double onboardingFactor,
                                   SimulationConfiguration config) {
-        double fatigueImpact = 1.0 + (fatigue * 1.8);
+        double fatigueImpact = new FatigueModel().defectModifier(fatigue, config);
         double pressureImpact = 1.0 + (schedulePressure * 1.4);
         double coordinationImpact = 1.0 + (coordinationPenalty * 2.5);
         double onboardingImpact = 1.0 + Math.max(0.0, onboardingFactor * 0.7);
@@ -36,15 +37,15 @@ public class DefectModel {
         }
         double intensityModifier = switch (intensity) {
             case SUSTAINABLE -> 1.0;
-            case INCREASED -> 1.08;
-            case CRUNCH -> 1.18;
+            case INCREASED -> config.getWorkIntensity().getIncreasedDefectMultiplier();
+            case CRUNCH -> config.getWorkIntensity().getCrunchDefectMultiplier();
         };
         double mentoringModifier = 1.0
                 + (1.0 - Math.max(0.0, Math.min(1.0, mentoringCoverage))) * 0.1;
         double probability = config.getQuality().getBaseDefectRate()
                 * Math.max(0.0, experienceModifier)
                 * (1.0 + Math.max(0.0, onboardingDeficit) * 0.7)
-                * (1.0 + Math.max(0.0, fatigue) * 1.8)
+                * new FatigueModel().defectModifier(fatigue, config)
                 * (1.0 + Math.max(0.0, coordinationPenalty) * 2.5)
                 * (1.0 + Math.max(0.0, schedulePressure) * 1.4)
                 * intensityModifier * mentoringModifier
@@ -73,7 +74,7 @@ public class DefectModel {
         return clamp(config.getQa().getBaseDetectionRate()
                 * config.getQa().getCapacityMultiplier()
                 * config.getTesting().discoveryFactor(priority)
-                * Math.max(0.0, 1.0 - Math.max(0.0, fatigue) * 0.5)
+                * new FatigueModel().qaEffectivenessModifier(fatigue, config)
                 * Math.min(1.0, normalizedCapacity), 1.0);
     }
 

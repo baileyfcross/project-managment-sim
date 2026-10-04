@@ -4,6 +4,7 @@ import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.model.Employee;
 import edu.simulator.model.Role;
 import edu.simulator.model.Team;
+import edu.simulator.model.WorkIntensity;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -49,11 +50,9 @@ public class CostModel {
     public BigDecimal calculateOvertimeCost(BigDecimal payroll, WorkIntensity intensity,
                                             SimulationConfiguration config) {
         double premium = config.getCosts().getOvertimePremiumRate();
-        double factor = switch (intensity) {
-            case SUSTAINABLE -> 0.0;
-            case INCREASED -> premium * 0.5;
-            case CRUNCH -> premium;
-        };
+        int standardHours = config.getWorkIntensity().getSustainableHours();
+        int overtimeHours = Math.max(0, config.getWorkIntensity().hours(intensity) - standardHours);
+        double factor = standardHours == 0 ? 0.0 : premium * overtimeHours / standardHours;
         return payroll.multiply(BigDecimal.valueOf(factor));
     }
 

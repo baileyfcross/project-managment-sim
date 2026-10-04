@@ -10,9 +10,9 @@ import edu.simulator.decision.HiringDecision;
 import edu.simulator.model.ExperienceLevel;
 import edu.simulator.model.Role;
 import edu.simulator.model.TestingPriority;
+import edu.simulator.model.WorkIntensity;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.SimulationEngine;
-import edu.simulator.simulation.WorkIntensity;
 
 import java.io.IOException;
 import java.math.BigDecimal;

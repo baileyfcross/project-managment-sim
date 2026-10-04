@@ -3,6 +3,7 @@ package edu.simulator.simulation;
 import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.model.ProjectPhase;
 import edu.simulator.model.WorkState;
+import edu.simulator.model.WorkIntensity;
 
 import java.util.EnumMap;
 import java.util.Map;

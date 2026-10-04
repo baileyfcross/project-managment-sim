@@ -11,11 +11,14 @@ public class MentoringModel {
                                      SimulationConfiguration configuration) {
         double capacity = 0.0;
         double demand = 0.0;
+        FatigueModel fatigueModel = new FatigueModel();
         for (Employee employee : team.activeEmployees()) {
+            double fatigueCapacity = fatigueModel.mentoringModifier(
+                    employee.getFatigue(), configuration);
             if (employee.getExperienceLevel() == ExperienceLevel.SENIOR) {
-                capacity += configuration.getMentoring().getSeniorCapacity();
+                capacity += configuration.getMentoring().getSeniorCapacity() * fatigueCapacity;
             } else if (employee.getExperienceLevel() == ExperienceLevel.MID_LEVEL) {
-                capacity += configuration.getMentoring().getMidLevelCapacity();
+                capacity += configuration.getMentoring().getMidLevelCapacity() * fatigueCapacity;
             } else {
                 demand += configuration.getMentoring().getJuniorDemand();
             }
@@ -61,8 +64,9 @@ public class MentoringModel {
             return 1.0;
         }
         double timeSpentMentoring = Math.min(1.0, result.demand() / result.capacity());
-        return Math.max(0.0, 1.0
+        double mentoringCost = Math.max(0.0, 1.0
                 - timeSpentMentoring * configuration.getMentoring().getMaximumDirectProductivityLoss());
+        return mentoringCost;
     }
 
     public double calculateMentorLoad(Team team) {

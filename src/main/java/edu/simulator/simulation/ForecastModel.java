@@ -36,9 +36,12 @@ public class ForecastModel {
         if (developerWork + testingWork + deploymentWork <= 0.0) {
             return project.getCurrentWeek();
         }
-        double devWeeks = weeks(developerWork, developerCapacity * 180.0);
-        double qaWeeks = weeks(testingWork, qaCapacity * 180.0);
-        double devopsWeeks = weeks(deploymentWork, devopsCapacity * 180.0);
+        double devWeeks = weeks(developerWork,
+                developerCapacity * ProductivityModel.WORK_UNITS_PER_CAPACITY);
+        double qaWeeks = weeks(testingWork,
+                qaCapacity * ProductivityModel.WORK_UNITS_PER_CAPACITY);
+        double devopsWeeks = weeks(deploymentWork,
+                devopsCapacity * ProductivityModel.WORK_UNITS_PER_CAPACITY);
         double estimate = Math.max(devWeeks, Math.max(qaWeeks, devopsWeeks));
         if (!Double.isFinite(estimate)) {
             return -1;

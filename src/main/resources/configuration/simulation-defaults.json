@@ -27,7 +27,33 @@
     "increasedWorkRate": 0.03,
     "crunchRate": 0.06,
     "maxValue": 1.0,
-    "burnoutThreshold": 0.6
+    "burnoutThreshold": 0.6,
+    "pressureAccumulationRate": 0.025,
+    "overtimeStreakAccumulationRate": 0.006,
+    "fatigueAccumulationCurve": 0.7,
+    "productivityMaxPenalty": 0.6,
+    "defectMaxIncrease": 1.2,
+    "qaEffectivenessMaxPenalty": 0.3,
+    "mentoringMaxPenalty": 0.25,
+    "coordinationMaxPenalty": 0.12
+  },
+  "workIntensity": {
+    "sustainableHours": 40,
+    "increasedHours": 48,
+    "crunchHours": 60,
+    "sustainableEffortMultiplier": 1.0,
+    "increasedEffortMultiplier": 1.17,
+    "crunchEffortMultiplier": 1.35,
+    "increasedDefectMultiplier": 1.08,
+    "crunchDefectMultiplier": 1.18
+  },
+  "morale": {
+    "baseline": 0.7,
+    "fatigueWeight": 0.025,
+    "overtimeWeight": 0.012,
+    "pressureWeight": 0.025,
+    "recoveryRate": 0.025,
+    "overtimeStreakWeight": 0.002
   },
   "onboarding": {
     "juniorWeeks": 4,
@@ -102,10 +128,12 @@
     "targetScheduleHealth": 0.85
   },
   "turnover": {
-    "baseRate": 0.012,
-    "fatigueWeight": 0.25,
-    "pressureWeight": 0.18,
-    "moraleWeight": 0.12,
+    "baseRate": 0.002,
+    "fatigueWeight": 0.12,
+    "pressureWeight": 0.06,
+    "moraleWeight": 0.08,
+    "overtimeStreakWeight": 0.012,
+    "overtimeStreakCap": 8,
     "maxRate": 0.2
   }
 }
