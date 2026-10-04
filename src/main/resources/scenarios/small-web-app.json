@@ -1,0 +1,20 @@
+{
+  "id": "small-web-app",
+  "name": "Small Business Web Application",
+  "deadlineWeeks": 20,
+  "budget": 400000,
+  "budgetFailureAllowed": true,
+  "scope": {
+    "requirements": 500,
+    "design": 700,
+    "development": 4000,
+    "testing": 1500,
+    "deployment": 300
+  },
+  "initialTeam": {
+    "projectManagers": 1,
+    "developers": 5,
+    "qaEngineers": 2,
+    "devOpsEngineers": 1
+  }
+}

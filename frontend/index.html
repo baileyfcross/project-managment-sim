@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Software Project Management Simulator</title>
+    <script type="module" src="/src/main.ts"></script>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; background: #0e1726; color: #ecf3ff; }
+      .app { padding: 20px; }
+      .card { background: rgba(255,255,255,0.04); border: 1px solid #2962a1; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+      h1, h2, h3 { margin-top: 0; }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+      .stat { padding: 12px; background: rgba(0,0,0,0.12); border-radius: 8px; }
+      .controls { display: flex; gap: 12px; flex-wrap: wrap; }
+      button { background: #1f7ae0; color: white; border: none; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+      button.secondary { background: #2d3d52; }
+      select { padding: 8px; border-radius: 8px; }
+      .health { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #163a57; }
+      ul { margin: 0; padding-left: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="card">
+        <h1>Software Project Management Simulator</h1>
+        <div id="scenarioSummary">Loading project...</div>
+      </div>
+
+      <div class="card">
+        <div class="controls">
+          <button id="startButton">Start Project</button>
+          <button id="advanceButton" class="secondary">Advance 1 Week</button>
+          <label>
+            Work intensity:
+            <select id="workIntensity">
+              <option value="SUSTAINABLE">Sustainable</option>
+              <option value="INCREASED">Increased</option>
+              <option value="CRUNCH">Crunch</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="card stats">
+        <div class="stat"><strong>Week</strong><div id="weekValue">-</div></div>
+        <div class="stat"><strong>Deadline</strong><div id="deadlineValue">-</div></div>
+        <div class="stat"><strong>Budget Remaining</strong><div id="budgetValue">-</div></div>
+        <div class="stat"><strong>Burn Rate</strong><div id="burnRateValue">-</div></div>
+        <div class="stat"><strong>Estimated Completion</strong><div id="forecastValue">-</div></div>
+        <div class="stat"><strong>Perceived Progress</strong><div id="perceivedValue">-</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Project Health</h2>
+        <div class="stats">
+          <div class="stat"><strong>Schedule</strong><div id="scheduleHealth" class="health">-</div></div>
+          <div class="stat"><strong>Budget</strong><div id="budgetHealth" class="health">-</div></div>
+          <div class="stat"><strong>Quality</strong><div id="qualityHealth" class="health">-</div></div>
+          <div class="stat"><strong>Morale</strong><div id="moraleHealth" class="health">-</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Team</h2>
+        <div class="stats">
+          <div class="stat"><strong>Developers</strong><div id="devCount">0</div></div>
+          <div class="stat"><strong>QA Engineers</strong><div id="qaCount">0</div></div>
+          <div class="stat"><strong>DevOps</strong><div id="devopsCount">0</div></div>
+          <div class="stat"><strong>Managers</strong><div id="pmCount">0</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Activity</h2>
+        <ul id="messagesList"></ul>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

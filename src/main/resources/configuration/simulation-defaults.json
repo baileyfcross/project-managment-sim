@@ -1,0 +1,53 @@
+{
+  "productivity": {
+    "junior": 0.55,
+    "mid": 1.0,
+    "senior": 1.3,
+    "baseTeamSizePenalty": 0.04,
+    "coordinationMaxPenalty": 0.32
+  },
+  "quality": {
+    "baseDefectRate": 0.08,
+    "defectCap": 0.42,
+    "reworkCreationRate": 0.18
+  },
+  "qa": {
+    "baseDetectionRate": 0.18,
+    "capacityMultiplier": 1.0
+  },
+  "fatigue": {
+    "recoveryRate": 0.08,
+    "increasedWorkRate": 0.03,
+    "crunchRate": 0.06,
+    "maxValue": 1.0,
+    "burnoutThreshold": 0.6
+  },
+  "onboarding": {
+    "juniorWeeks": 4,
+    "midWeeks": 3,
+    "seniorWeeks": 2,
+    "mentoringCapacity": 0.4
+  },
+  "costs": {
+    "juniorDeveloperWeekly": 1500,
+    "midDeveloperWeekly": 2100,
+    "seniorDeveloperWeekly": 2900,
+    "qaWeekly": 1900,
+    "devopsWeekly": 2400,
+    "projectManagerWeekly": 2600,
+    "hiringDelayWeeks": 1,
+    "overtimePremiumRate": 0.15
+  },
+  "schedule": {
+    "pressureWeight": 0.06,
+    "deadlineUrgencyWeight": 0.14,
+    "targetScheduleHealth": 0.85
+  },
+  "turnover": {
+    "baseRate": 0.012,
+    "fatigueWeight": 0.25,
+    "pressureWeight": 0.18,
+    "moraleWeight": 0.12,
+    "maxRate": 0.2
+  }
+}

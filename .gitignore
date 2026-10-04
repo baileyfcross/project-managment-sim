@@ -1,0 +1,219 @@
+# ============================================================
+# Software Project Management Simulator
+# Java / Gradle / JavaFX / npm / Vite / VS Code
+# ============================================================
+
+
+# ============================================================
+# Java
+# ============================================================
+
+*.class
+*.jar
+*.war
+*.ear
+*.jmod
+
+# JVM crash logs
+hs_err_pid*
+replay_pid*
+
+
+# ============================================================
+# Gradle
+# ============================================================
+
+.gradle/
+build/
+out/
+
+# Keep the Gradle Wrapper committed
+!gradle/wrapper/gradle-wrapper.jar
+
+
+# ============================================================
+# Frontend - npm / Node.js
+# ============================================================
+
+frontend/node_modules/
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.npmrc.local
+
+
+# ============================================================
+# Vite / TypeScript
+# ============================================================
+
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+*.tsbuildinfo
+
+vite.config.*.timestamp-*
+
+
+# ============================================================
+# Generated WebView Resources
+# ============================================================
+
+# The frontend build is copied here by Gradle.
+# Source files belong in frontend/, so generated files should
+# not be committed.
+src/main/resources/web/
+
+
+# ============================================================
+# Packaged Application / Installer Output
+# ============================================================
+
+dist/
+installer/
+installers/
+package/
+packages/
+
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.app
+
+
+# ============================================================
+# VS Code
+# ============================================================
+
+# Ignore local VS Code workspace state by default.
+.vscode/
+
+*.code-workspace
+
+
+# ============================================================
+# IntelliJ IDEA
+# Included in case the project is opened in another Java IDE.
+# ============================================================
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+
+# ============================================================
+# Eclipse
+# ============================================================
+
+.project
+.classpath
+.settings/
+bin/
+
+
+# ============================================================
+# Operating System Files
+# ============================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+
+# ============================================================
+# Temporary Files
+# ============================================================
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.orig
+
+tmp/
+temp/
+
+
+# ============================================================
+# Logs
+# ============================================================
+
+*.log
+logs/
+
+
+# ============================================================
+# Test / Coverage Output
+# ============================================================
+
+coverage/
+test-results/
+reports/
+
+.gradle-test-kit/
+
+
+# ============================================================
+# Environment / Local Configuration
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+local.properties
+application-local.properties
+application-local.json
+
+
+# ============================================================
+# Runtime Save Data
+# ============================================================
+
+# If simulator saves, replays, or debug runs are written into
+# these folders, keep them out of source control.
+saves/
+replays/
+runtime-data/
+debug-output/
+
+
+# ============================================================
+# Generated Scenario / Simulation Output
+# ============================================================
+
+simulation-output/
+simulation-results/
+simulation-history/
+
+
+# ============================================================
+# Miscellaneous
+# ============================================================
+
+.cache/
+.cache-loader/

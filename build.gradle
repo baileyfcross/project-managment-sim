@@ -1,0 +1,68 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'edu.simulator'
+version = '1.0.0'
+
+ext {
+    platform = System.getProperty('os.name').toLowerCase().contains('win') ? 'win' :
+            System.getProperty('os.name').toLowerCase().contains('mac') ? 'mac' :
+            'linux'
+    javafxVersion = '21.0.2'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.openjfx:javafx-base:${javafxVersion}:${platform}"
+    implementation "org.openjfx:javafx-graphics:${javafxVersion}:${platform}"
+    implementation "org.openjfx:javafx-controls:${javafxVersion}:${platform}"
+    implementation "org.openjfx:javafx-web:${javafxVersion}:${platform}"
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2'
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+application {
+    mainClass = 'edu.simulator.ui.DesktopApplication'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('installFrontend', Exec) {
+    workingDir = file('frontend')
+    commandLine = ['cmd', '/c', 'npm install']
+}
+
+tasks.register('buildFrontend', Exec) {
+    dependsOn 'installFrontend'
+    workingDir = file('frontend')
+    commandLine = ['cmd', '/c', 'npm run build']
+}
+
+processResources {
+    dependsOn 'buildFrontend'
+}
+
+compileJava {
+    dependsOn 'buildFrontend'
+}
