@@ -26,17 +26,49 @@
     "juniorWeeks": 4,
     "midWeeks": 3,
     "seniorWeeks": 2,
-    "mentoringCapacity": 0.4
+    "mentoringCapacity": 0.4,
+    "initialEffectiveness": 0.4
+  },
+  "initialTeamExperience": {
+    "developer": "MID_LEVEL",
+    "qaEngineer": "MID_LEVEL",
+    "devopsEngineer": "MID_LEVEL",
+    "projectManager": "SENIOR"
   },
   "costs": {
     "juniorDeveloperWeekly": 1500,
     "midDeveloperWeekly": 2100,
     "seniorDeveloperWeekly": 2900,
-    "qaWeekly": 1900,
-    "devopsWeekly": 2400,
-    "projectManagerWeekly": 2600,
-    "hiringDelayWeeks": 1,
+    "juniorQaWeekly": 1400,
+    "midQaWeekly": 1900,
+    "seniorQaWeekly": 2500,
+    "juniorDevopsWeekly": 1700,
+    "midDevopsWeekly": 2400,
+    "seniorDevopsWeekly": 3100,
+    "juniorProjectManagerWeekly": 1800,
+    "midProjectManagerWeekly": 2600,
+    "seniorProjectManagerWeekly": 3400,
+    "juniorHiringDelayWeeks": 1,
+    "midHiringDelayWeeks": 2,
+    "seniorHiringDelayWeeks": 3,
+    "hiringCostJunior": 1000,
+    "hiringCostMidLevel": 1500,
+    "hiringCostSenior": 2500,
     "overtimePremiumRate": 0.15
+  },
+  "mentoring": {
+    "seniorCapacity": 1.0,
+    "midLevelCapacity": 0.5,
+    "juniorDemand": 0.45,
+    "onboardingDemand": 0.35,
+    "minimumProgressFactor": 0.25,
+    "maximumDirectProductivityLoss": 0.25
+  },
+  "coordination": {
+    "pairScale": 0.011,
+    "projectManagerReduction": 0.18,
+    "seniorReduction": 0.025,
+    "maximumPenalty": 0.45
   },
   "schedule": {
     "pressureWeight": 0.06,

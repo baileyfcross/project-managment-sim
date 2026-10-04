@@ -2,18 +2,21 @@ package edu.simulator.simulation;
 
 import edu.simulator.configuration.ScenarioConfiguration;
 import edu.simulator.configuration.SimulationConfiguration;
+import edu.simulator.decision.HiringDecision;
 import edu.simulator.event.EventType;
 import edu.simulator.event.ProjectEvent;
 import edu.simulator.model.Employee;
 import edu.simulator.model.ExperienceLevel;
 import edu.simulator.model.Project;
 import edu.simulator.model.ProjectPhase;
+import edu.simulator.model.PendingHire;
 import edu.simulator.model.Role;
 import edu.simulator.model.Team;
 import edu.simulator.model.WeeklySnapshot;
 import edu.simulator.model.WorkState;
 import edu.simulator.report.FinalProjectReport;
 import edu.simulator.ui.SimulationStateDto;
+import edu.simulator.ui.TeamManagementDto;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -35,6 +38,7 @@ public class SimulationEngine {
     private final Team team;
     private final List<WeeklySnapshot> history = new ArrayList<>();
     private final List<ProjectEvent> events = new ArrayList<>();
+    private final List<PendingHire> pendingHires = new ArrayList<>();
     private final List<String> messages = new ArrayList<>();
     private double fatigue = 0.18;
     private double morale = 0.72;
@@ -44,6 +48,8 @@ public class SimulationEngine {
     private int totalTurnover;
     private int defectsReleased;
     private BigDecimal lastWeeklyCost = BigDecimal.ZERO;
+    private BigDecimal hiringCostSinceSnapshot = BigDecimal.ZERO;
+    private BigDecimal totalHiringCost = BigDecimal.ZERO;
 
     public SimulationEngine(ScenarioConfiguration scenario, SimulationConfiguration config, long seed) {
         this(scenario, config, seed, readScenarioTeam(scenario));
@@ -78,8 +84,10 @@ public class SimulationEngine {
             }
             for (int index = 0; index < count; index++) {
                 ExperienceLevel level = assignDefaultExperience(role);
-                Employee employee = new Employee(role, level, weeklyRateFor(role, level));
+                Employee employee = new Employee(role, level,
+                        config.getCosts().weeklySalary(role, level));
                 employee.setOnboardingProgress(1.0);
+                employee.setOnboardingDurationWeeks(onboardingWeeksFor(level));
                 team.addEmployee(employee);
             }
         }
@@ -134,14 +142,86 @@ public class SimulationEngine {
         return List.copyOf(events);
     }
 
+    public List<PendingHire> getPendingHires() {
+        return List.copyOf(pendingHires);
+    }
+
+    public BigDecimal getTotalHiringCost() {
+        return totalHiringCost;
+    }
+
+    public void hire(HiringDecision decision) {
+        if (complete) {
+            throw new IllegalStateException("Cannot hire after the project has ended");
+        }
+        int totalPeople = team.totalCount() + pendingHires.size();
+        if (totalPeople + decision.quantity() > 60) {
+            throw new IllegalArgumentException("The active team and pending hires cannot exceed 60 people");
+        }
+
+        CoordinationModel coordinationModel = new CoordinationModel();
+        String oldCoordination = coordinationModel.healthLabel(
+                coordinationModel.calculatePenalty(team, config));
+        String oldMentoring = new MentoringModel().calculate(team, pendingHires.size(), config).loadLabel();
+        int delay = config.getCosts().hiringDelayWeeks(decision.experienceLevel());
+        BigDecimal perHireCost = new CostModel().hiringCost(decision.experienceLevel(), config);
+        BigDecimal totalCost = perHireCost.multiply(BigDecimal.valueOf(decision.quantity()));
+        for (int index = 0; index < decision.quantity(); index++) {
+            Employee employee = new Employee(decision.role(), decision.experienceLevel(),
+                    config.getCosts().weeklySalary(decision.role(), decision.experienceLevel()));
+            employee.setOnboardingDurationWeeks(onboardingWeeksFor(decision.experienceLevel()));
+            employee.setOnboardingProgress(config.getOnboarding().getInitialEffectiveness());
+            employee.setOnboardingState(new MentoringModel().stateFor(employee.getOnboardingProgress()));
+            if (delay == 0) {
+                team.addEmployee(employee);
+            } else {
+                employee.setActive(false);
+                pendingHires.add(new PendingHire(employee, delay));
+            }
+        }
+        project.addSpent(totalCost);
+        hiringCostSinceSnapshot = hiringCostSinceSnapshot.add(totalCost);
+        totalHiringCost = totalHiringCost.add(totalCost);
+
+        String roleName = decision.role().name().replace('_', ' ').toLowerCase();
+        String experienceName = decision.experienceLevel().name().replace('_', '-').toLowerCase();
+        addMessage(decision.quantity() + " " + experienceName + " " + roleName
+                + (decision.quantity() == 1 ? " hired." : "s hired.")
+                + (delay == 0 ? " They joined and began onboarding."
+                : " They will join in " + delay + (delay == 1 ? " week." : " weeks.")));
+
+        String newCoordination = coordinationModel.healthLabel(
+                coordinationModel.calculatePenalty(team, config));
+        if (!newCoordination.equals(oldCoordination)) {
+            addMessage("Coordination is now " + newCoordination.toLowerCase()
+                    + " as the team expands.");
+        }
+        String newMentoring = new MentoringModel()
+                .calculate(team, pendingHires.size(), config).loadLabel();
+        if (isHigherMentoringLoad(newMentoring, oldMentoring)) {
+            addMessage("Mentoring demand is now " + newMentoring.toLowerCase()
+                    + " because of new team members.");
+        }
+    }
+
     public SimulationStateDto getCurrentState() {
-        BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
+        CostModel costModel = new CostModel();
+        BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
         double weeklyWorkCapacity = developerCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
         int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(project, weeklyWorkCapacity);
         int estimatedWeeksToFinish = estimatedCompletionWeek < 0
-                ? 0 : Math.max(0, estimatedCompletionWeek - project.getCurrentWeek());
-        BigDecimal forecastCost = project.getSpent().add(
-                payroll.multiply(BigDecimal.valueOf(estimatedWeeksToFinish)));
+                ? Math.max(0, scenario.getDeadlineWeeks() - project.getCurrentWeek())
+                : Math.max(0, estimatedCompletionWeek - project.getCurrentWeek());
+        BigDecimal projectedCost = payroll.add(costModel.calculateOvertimeCost(payroll, workIntensity, config))
+                .multiply(BigDecimal.valueOf(estimatedWeeksToFinish));
+        for (PendingHire pendingHire : pendingHires) {
+            int paidWeeks = Math.max(0, estimatedWeeksToFinish - pendingHire.getWeeksUntilStart());
+            BigDecimal hirePayroll = BigDecimal.valueOf(pendingHire.getEmployee().getBaseWeeklyCost())
+                    .multiply(BigDecimal.valueOf(paidWeeks));
+            projectedCost = projectedCost.add(hirePayroll)
+                    .add(costModel.calculateOvertimeCost(hirePayroll, workIntensity, config));
+        }
+        BigDecimal forecastCost = project.getSpent().add(projectedCost);
         return new SimulationStateDto(
                 project.getCurrentWeek(),
                 seed,
@@ -164,6 +244,61 @@ public class SimulationEngine {
         );
     }
 
+    public TeamManagementDto getTeamManagementState() {
+        Map<String, Map<String, Integer>> experienceCounts = new HashMap<>();
+        team.toExperienceCounts().forEach((role, counts) -> {
+            Map<String, Integer> levels = new HashMap<>();
+            counts.forEach((experience, count) -> levels.put(experience.name(), count));
+            experienceCounts.put(role.name(), Map.copyOf(levels));
+        });
+
+        List<TeamManagementDto.OnboardingEmployee> onboarding = team.onboardingEmployees().stream()
+                .map(employee -> new TeamManagementDto.OnboardingEmployee(
+                        employee.getRole().name(), employee.getExperienceLevel().name(),
+                        employee.getOnboardingState().name()))
+                .toList();
+        List<TeamManagementDto.PendingHire> pending = pendingHires.stream()
+                .map(hire -> new TeamManagementDto.PendingHire(
+                        hire.getEmployee().getRole().name(),
+                        hire.getEmployee().getExperienceLevel().name(),
+                        hire.getWeeksUntilStart()))
+                .toList();
+        Map<String, Map<String, TeamManagementDto.HiringOption>> options = new HashMap<>();
+        CostModel costModel = new CostModel();
+        for (Role role : Role.values()) {
+            Map<String, TeamManagementDto.HiringOption> levels = new HashMap<>();
+            for (ExperienceLevel experience : ExperienceLevel.values()) {
+                levels.put(experience.name(), new TeamManagementDto.HiringOption(
+                        costModel.weeklyRate(role, experience, config),
+                        costModel.hiringCost(experience, config),
+                        config.getCosts().hiringDelayWeeks(experience),
+                        onboardingWeeksFor(experience)));
+            }
+            options.put(role.name(), Map.copyOf(levels));
+        }
+
+        MentoringModel.MentoringResult mentoring =
+                new MentoringModel().calculate(team, pendingHires.size(), config);
+        CoordinationModel coordination = new CoordinationModel();
+        String coordinationHealth = coordination.healthLabel(
+                coordination.calculatePenalty(team, config));
+        BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
+        return new TeamManagementDto(
+                team.totalCount(),
+                onboarding.size(),
+                pendingHires.size(),
+                Map.copyOf(experienceCounts),
+                onboarding,
+                pending,
+                Map.copyOf(options),
+                payroll,
+                getCurrentState().getForecastCost(),
+                totalHiringCost,
+                mentoring.loadLabel(),
+                coordinationHealth
+        );
+    }
+
     /**
      * Simulates the next week in a fixed order and records exactly one snapshot
      * representing that week's end.
@@ -175,25 +310,45 @@ public class SimulationEngine {
 
         int simulatedWeek = project.getCurrentWeek() + 1;
         project.setCurrentWeek(simulatedWeek);
+        activatePendingHires(simulatedWeek);
+        for (Employee employee : team.activeEmployees()) {
+            employee.incrementWeek();
+        }
+        MentoringModel mentoringModel = new MentoringModel();
+        MentoringModel.MentoringResult mentoring =
+                mentoringModel.calculate(team, pendingHires.size(), config);
         double coordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
         ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculate(
-                team, workIntensity, fatigue, schedulePressure, config);
+                team, workIntensity, fatigue, schedulePressure, config, mentoring);
         double workCapacity = productivity.developerEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
         double defectRate = new DefectModel().defectProbability(
                 config.getQuality().getBaseDefectRate(), fatigue, schedulePressure,
-                coordinationPenalty, 0.0, config);
+                coordinationPenalty, averageDeveloperOnboardingDeficit(), config);
 
         workCapacity = completeKnownRework(workCapacity, defectRate);
         performNewWork(workCapacity, defectRate);
-        discoverDefects();
+        discoverDefects(productivity.qaEffectiveCapacity());
 
         schedulePressure = new SchedulePressureModel().calculate(
                 project, project.getWorkState().perceivedRemainingWork(),
                 Math.max(1.0, workCapacity), project.getWorkState().totalKnownRework(), config);
         project.recordSchedulePressure(schedulePressure);
         fatigue = new FatigueModel().updateFatigue(fatigue, workIntensity, config);
+        for (Employee employee : team.activeEmployees()) {
+            employee.setFatigue(fatigue);
+        }
         morale = clamp(morale - schedulePressure * 0.18
                 + (workIntensity == WorkIntensity.SUSTAINABLE ? 0.03 : -0.02));
+        int onboardedCount = mentoringModel.advanceOnboarding(team, mentoring, config);
+        if (onboardedCount > 0) {
+            addMessage(onboardedCount + (onboardedCount == 1
+                    ? " employee completed onboarding."
+                    : " employees completed onboarding."));
+        }
+        String mentoringLabel = mentoringModel.calculate(team, pendingHires.size(), config).loadLabel();
+        if (mentoringLabel.equals("Overloaded") && !mentoring.loadLabel().equals("Overloaded")) {
+            addMessage("Mentoring demand is overloaded; onboarding is progressing more slowly.");
+        }
 
         int departures = new TurnoverModel().calculateTurnover(
                 team, fatigue, morale, schedulePressure, config, random);
@@ -208,8 +363,9 @@ public class SimulationEngine {
 
         BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
         BigDecimal overtime = new CostModel().calculateOvertimeCost(payroll, workIntensity, config);
-        lastWeeklyCost = payroll.add(overtime);
-        project.addSpent(lastWeeklyCost);
+        BigDecimal hiringCost = hiringCostSinceSnapshot;
+        lastWeeklyCost = payroll.add(overtime).add(hiringCost);
+        project.addSpent(payroll.add(overtime));
 
         if (schedulePressure > 0.8 && random.nextDouble() < 0.25) {
             events.add(new ProjectEvent(EventType.PRODUCTION_BUG,
@@ -248,6 +404,15 @@ public class SimulationEngine {
                 project.calculateTrueProgress(),
                 team.totalCount(),
                 team.toRoleCounts(),
+                team.toExperienceCounts(),
+                team.onboardingEmployees().size(),
+                pendingHires.size(),
+                averageOnboardingEffectiveness(),
+                mentoring.load(),
+                mentoring.coverage(),
+                coordinationPenalty,
+                payroll,
+                hiringCost,
                 averageProductivity,
                 fatigue,
                 project.getWorkState().totalKnownRework(),
@@ -257,6 +422,7 @@ public class SimulationEngine {
                 schedulePressure,
                 messages
         ));
+        hiringCostSinceSnapshot = BigDecimal.ZERO;
     }
 
     public FinalProjectReport generateFinalReport() {
@@ -325,9 +491,8 @@ public class SimulationEngine {
         }
     }
 
-    private void discoverDefects() {
-        double qaCount = team.count(Role.QA_ENGINEER);
-        double discoveryCapacity = qaCount * 50.0
+    private void discoverDefects(double qaCapacity) {
+        double discoveryCapacity = qaCapacity * 50.0
                 * config.getQa().getBaseDetectionRate()
                 * config.getQa().getCapacityMultiplier()
                 * (1.0 - fatigue * 0.5);
@@ -347,8 +512,10 @@ public class SimulationEngine {
     }
 
     private double developerCapacity() {
+        MentoringModel.MentoringResult mentoring =
+                new MentoringModel().calculate(team, pendingHires.size(), config);
         return new ProductivityModel().calculate(team, workIntensity, fatigue,
-                schedulePressure, config).developerEffectiveCapacity();
+                schedulePressure, config, mentoring).developerEffectiveCapacity();
     }
 
     private Map<String, Integer> roleCounts() {
@@ -366,23 +533,70 @@ public class SimulationEngine {
         }
     }
 
-    private double weeklyRateFor(Role role, ExperienceLevel level) {
-        return switch (role) {
-            case DEVELOPER -> switch (level) {
-                case JUNIOR -> config.getCosts().getJuniorDeveloperWeekly();
-                case MID_LEVEL -> config.getCosts().getMidDeveloperWeekly();
-                case SENIOR -> config.getCosts().getSeniorDeveloperWeekly();
-            };
-            case QA_ENGINEER -> config.getCosts().getQaWeekly();
-            case DEVOPS_ENGINEER -> config.getCosts().getDevopsWeekly();
-            case PROJECT_MANAGER -> config.getCosts().getProjectManagerWeekly();
+    private int onboardingWeeksFor(ExperienceLevel level) {
+        return switch (level) {
+            case JUNIOR -> config.getOnboarding().getJuniorWeeks();
+            case MID_LEVEL -> config.getOnboarding().getMidWeeks();
+            case SENIOR -> config.getOnboarding().getSeniorWeeks();
         };
     }
 
     private ExperienceLevel assignDefaultExperience(Role role) {
-        return switch (role) {
-            case PROJECT_MANAGER -> ExperienceLevel.SENIOR;
-            case DEVELOPER, QA_ENGINEER, DEVOPS_ENGINEER -> ExperienceLevel.MID_LEVEL;
+        return config.getInitialTeamExperience().forRole(role);
+    }
+
+    private void activatePendingHires(int simulatedWeek) {
+        List<PendingHire> joining = new ArrayList<>();
+        for (PendingHire pendingHire : pendingHires) {
+            if (pendingHire.advanceWeek()) {
+                joining.add(pendingHire);
+            }
+        }
+        for (PendingHire pendingHire : joining) {
+            Employee employee = pendingHire.getEmployee();
+            employee.setActive(true);
+            team.addEmployee(employee);
+            addMessage(employee.getExperienceLevel().name().replace('_', '-')
+                    + " " + employee.getRole().name().replace('_', ' ').toLowerCase()
+                    + " joined the project in Week " + simulatedWeek + " and began onboarding.");
+            pendingHires.remove(pendingHire);
+        }
+    }
+
+    private double averageOnboardingEffectiveness() {
+        if (team.totalCount() == 0) {
+            return 0.0;
+        }
+        return team.activeEmployees().stream()
+                .mapToDouble(Employee::getOnboardingProgress)
+                .average()
+                .orElse(0.0);
+    }
+
+    private double averageDeveloperOnboardingDeficit() {
+        List<Employee> developers = team.activeEmployees().stream()
+                .filter(employee -> employee.getRole() == Role.DEVELOPER)
+                .toList();
+        if (developers.isEmpty()) {
+            return 0.0;
+        }
+        return developers.stream()
+                .mapToDouble(employee -> 1.0 - employee.getOnboardingProgress())
+                .average()
+                .orElse(0.0);
+    }
+
+    private boolean isHigherMentoringLoad(String candidate, String baseline) {
+        return mentoringRank(candidate) > mentoringRank(baseline);
+    }
+
+    private int mentoringRank(String label) {
+        return switch (label) {
+            case "Low" -> 0;
+            case "Moderate" -> 1;
+            case "High" -> 2;
+            case "Overloaded" -> 3;
+            default -> 0;
         };
     }
 

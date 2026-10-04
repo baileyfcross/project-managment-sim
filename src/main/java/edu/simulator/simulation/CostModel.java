@@ -15,16 +15,7 @@ public class CostModel {
             if (!employee.isActive()) {
                 continue;
             }
-            total += switch (employee.getRole()) {
-                case PROJECT_MANAGER -> config.getCosts().getProjectManagerWeekly();
-                case QA_ENGINEER -> config.getCosts().getQaWeekly();
-                case DEVOPS_ENGINEER -> config.getCosts().getDevopsWeekly();
-                case DEVELOPER -> switch (employee.getExperienceLevel()) {
-                    case JUNIOR -> config.getCosts().getJuniorDeveloperWeekly();
-                    case MID_LEVEL -> config.getCosts().getMidDeveloperWeekly();
-                    case SENIOR -> config.getCosts().getSeniorDeveloperWeekly();
-                };
-            };
+            total += employee.getBaseWeeklyCost();
         }
         return BigDecimal.valueOf(total);
     }
@@ -42,20 +33,26 @@ public class CostModel {
     }
 
     public BigDecimal weeklyRate(Role role, SimulationConfiguration config) {
-        return BigDecimal.valueOf(switch (role) {
-            case PROJECT_MANAGER -> config.getCosts().getProjectManagerWeekly();
-            case QA_ENGINEER -> config.getCosts().getQaWeekly();
-            case DEVOPS_ENGINEER -> config.getCosts().getDevopsWeekly();
-            case DEVELOPER -> config.getCosts().getMidDeveloperWeekly();
-        });
+        return weeklyRate(role, config.getInitialTeamExperience().forRole(role), config);
+    }
+
+    public BigDecimal weeklyRate(Role role, edu.simulator.model.ExperienceLevel level,
+                                 SimulationConfiguration config) {
+        return BigDecimal.valueOf(config.getCosts().weeklySalary(role, level));
+    }
+
+    public BigDecimal hiringCost(edu.simulator.model.ExperienceLevel level,
+                                 SimulationConfiguration config) {
+        return BigDecimal.valueOf(config.getCosts().hiringCost(level));
     }
 
     public BigDecimal calculateOvertimeCost(BigDecimal payroll, WorkIntensity intensity,
                                             SimulationConfiguration config) {
+        double premium = config.getCosts().getOvertimePremiumRate();
         double factor = switch (intensity) {
             case SUSTAINABLE -> 0.0;
-            case INCREASED -> 0.08;
-            case CRUNCH -> 0.16;
+            case INCREASED -> premium * 0.5;
+            case CRUNCH -> premium;
         };
         return payroll.multiply(BigDecimal.valueOf(factor));
     }

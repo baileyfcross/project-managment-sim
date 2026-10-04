@@ -15,6 +15,15 @@ public class WeeklySnapshot {
     private final double trueProgress;
     private final int teamSize;
     private final Map<Role, Integer> teamCounts;
+    private final Map<Role, Map<ExperienceLevel, Integer>> experienceCounts;
+    private final int onboardingEmployees;
+    private final int pendingHires;
+    private final double averageOnboardingEffectiveness;
+    private final double mentoringLoad;
+    private final double mentoringCoverage;
+    private final double coordinationOverhead;
+    private final BigDecimal weeklyPayroll;
+    private final BigDecimal hiringCost;
     private final double averageProductivity;
     private final double averageFatigue;
     private final double knownRework;
@@ -26,6 +35,11 @@ public class WeeklySnapshot {
     public WeeklySnapshot(int week, BigDecimal spent, BigDecimal remainingBudget,
                           BigDecimal weeklyCost, double perceivedProgress,
                           double trueProgress, int teamSize, Map<Role, Integer> teamCounts,
+                          Map<Role, Map<ExperienceLevel, Integer>> experienceCounts,
+                          int onboardingEmployees, int pendingHires,
+                          double averageOnboardingEffectiveness, double mentoringLoad,
+                          double mentoringCoverage, double coordinationOverhead,
+                          BigDecimal weeklyPayroll, BigDecimal hiringCost,
                           double averageProductivity, double averageFatigue,
                           double knownRework, double unknownRework,
                           int estimatedCompletionWeek, double schedulePressure,
@@ -41,6 +55,18 @@ public class WeeklySnapshot {
         this.trueProgress = SimulationValues.unitInterval(trueProgress);
         this.teamSize = Math.max(0, teamSize);
         this.teamCounts = Map.copyOf(new EnumMap<>(teamCounts));
+        Map<Role, Map<ExperienceLevel, Integer>> copiedExperienceCounts = new EnumMap<>(Role.class);
+        experienceCounts.forEach((role, counts) ->
+                copiedExperienceCounts.put(role, Map.copyOf(new EnumMap<>(counts))));
+        this.experienceCounts = Map.copyOf(copiedExperienceCounts);
+        this.onboardingEmployees = Math.max(0, onboardingEmployees);
+        this.pendingHires = Math.max(0, pendingHires);
+        this.averageOnboardingEffectiveness = SimulationValues.unitInterval(averageOnboardingEffectiveness);
+        this.mentoringLoad = SimulationValues.unitInterval(mentoringLoad);
+        this.mentoringCoverage = SimulationValues.unitInterval(mentoringCoverage);
+        this.coordinationOverhead = SimulationValues.unitInterval(coordinationOverhead);
+        this.weeklyPayroll = weeklyPayroll;
+        this.hiringCost = hiringCost;
         this.averageProductivity = SimulationValues.nonNegativeFinite(averageProductivity);
         this.averageFatigue = SimulationValues.unitInterval(averageFatigue);
         this.knownRework = SimulationValues.nonNegativeFinite(knownRework);
@@ -80,6 +106,42 @@ public class WeeklySnapshot {
 
     public Map<Role, Integer> getTeamCounts() {
         return teamCounts;
+    }
+
+    public Map<Role, Map<ExperienceLevel, Integer>> getExperienceCounts() {
+        return experienceCounts;
+    }
+
+    public int getOnboardingEmployees() {
+        return onboardingEmployees;
+    }
+
+    public int getPendingHires() {
+        return pendingHires;
+    }
+
+    public double getAverageOnboardingEffectiveness() {
+        return averageOnboardingEffectiveness;
+    }
+
+    public double getMentoringLoad() {
+        return mentoringLoad;
+    }
+
+    public double getMentoringCoverage() {
+        return mentoringCoverage;
+    }
+
+    public double getCoordinationOverhead() {
+        return coordinationOverhead;
+    }
+
+    public BigDecimal getWeeklyPayroll() {
+        return weeklyPayroll;
+    }
+
+    public BigDecimal getHiringCost() {
+        return hiringCost;
     }
 
     public double getAverageProductivity() {

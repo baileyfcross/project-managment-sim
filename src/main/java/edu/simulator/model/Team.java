@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 public class Team {
     private final Map<Role, List<Employee>> employeesByRole = new EnumMap<>(Role.class);
@@ -16,7 +18,10 @@ public class Team {
 
     public void addEmployee(Employee employee) {
         if (employee == null) {
-            return;
+            throw new IllegalArgumentException("Employee is required");
+        }
+        if (allEmployees().stream().anyMatch(existing -> existing.getId().equals(employee.getId()))) {
+            throw new IllegalArgumentException("Employee is already on this team");
         }
         employeesByRole.get(employee.getRole()).add(employee);
     }
@@ -31,13 +36,14 @@ public class Team {
     }
 
     public int count(Role role) {
-        return employeesByRole.getOrDefault(role, List.of()).size();
+        return (int) employeesByRole.getOrDefault(role, List.of()).stream()
+                .filter(Employee::isActive).count();
     }
 
     public int totalCount() {
         int total = 0;
-        for (List<Employee> employees : employeesByRole.values()) {
-            total += employees.size();
+        for (Role role : Role.values()) {
+            total += count(role);
         }
         return total;
     }
@@ -61,7 +67,42 @@ public class Team {
         for (Role role : Role.values()) {
             counts.put(role, count(role));
         }
-        return counts;
+        return Map.copyOf(counts);
+    }
+
+    public Map<Role, Map<ExperienceLevel, Integer>> toExperienceCounts() {
+        Map<Role, Map<ExperienceLevel, Integer>> counts = new EnumMap<>(Role.class);
+        for (Role role : Role.values()) {
+            Map<ExperienceLevel, Integer> byExperience = new EnumMap<>(ExperienceLevel.class);
+            for (ExperienceLevel level : ExperienceLevel.values()) {
+                byExperience.put(level, 0);
+            }
+            for (Employee employee : employeesByRole.get(role)) {
+                if (employee.isActive()) {
+                    byExperience.compute(employee.getExperienceLevel(), (level, count) -> count + 1);
+                }
+            }
+            counts.put(role, Map.copyOf(byExperience));
+        }
+        return Map.copyOf(counts);
+    }
+
+    public List<Employee> activeEmployees() {
+        return allEmployees().stream().filter(Employee::isActive).toList();
+    }
+
+    public List<Employee> onboardingEmployees() {
+        return activeEmployees().stream()
+                .filter(employee -> employee.getOnboardingProgress() < 1.0)
+                .toList();
+    }
+
+    public Set<String> employeeIds() {
+        Set<String> ids = new HashSet<>();
+        for (Employee employee : allEmployees()) {
+            ids.add(employee.getId());
+        }
+        return Set.copyOf(ids);
     }
 
     @FunctionalInterface

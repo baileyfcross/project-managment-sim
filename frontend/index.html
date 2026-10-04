@@ -34,6 +34,8 @@
       .health { font-weight: 700; }
       .messages { margin: 0; padding-left: 20px; color: #c5d2e3; }
       .messages li { margin: 8px 0; }
+      .staffing-list { margin: 8px 0 16px; padding-left: 20px; color: #c5d2e3; }
+      .staffing-list li { margin: 6px 0; }
       .error { min-height: 20px; margin-top: 12px; color: #ff9999; }
       .progress-track { height: 12px; margin-top: 11px; overflow: hidden; border-radius: 99px; background: #2b3b51; }
       .progress-fill { height: 100%; border-radius: inherit; background: #45a0ff; }
@@ -135,6 +137,55 @@
             <ul id="messagesList" class="messages"></ul>
           </div>
         </div>
+        <section class="card" aria-labelledby="teamManagementHeading">
+          <h2 id="teamManagementHeading">Manage Team</h2>
+          <div class="grid">
+            <div class="metric"><div class="metric-label">Weekly payroll</div><div id="activePayroll" class="metric-value">-</div></div>
+            <div class="metric"><div class="metric-label">Projected final cost</div><div id="teamForecast" class="metric-value">-</div></div>
+            <div class="metric"><div class="metric-label">Hiring fees to date</div><div id="totalHiringCost" class="metric-value">-</div></div>
+            <div class="metric"><div class="metric-label">Mentoring load</div><div id="mentoringLoad" class="metric-value">-</div></div>
+            <div class="metric"><div class="metric-label">Coordination</div><div id="coordinationHealth" class="metric-value">-</div></div>
+          </div>
+          <p id="staffingSummary" class="muted"></p>
+          <div class="two-column">
+            <div>
+              <h3>Active staff by experience</h3>
+              <ul id="experienceCounts" class="staffing-list"></ul>
+              <h3>Onboarding</h3>
+              <ul id="onboardingList" class="staffing-list"></ul>
+              <h3>Pending hires</h3>
+              <ul id="pendingHiresList" class="staffing-list"></ul>
+            </div>
+            <div>
+              <h3>Hire staff</h3>
+              <div class="actions">
+                <label for="hireRole">Role</label>
+                <select id="hireRole">
+                  <option value="DEVELOPER">Developer</option>
+                  <option value="QA_ENGINEER">QA Engineer</option>
+                  <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
+                  <option value="PROJECT_MANAGER">Project Manager</option>
+                </select>
+              </div>
+              <div class="actions" style="margin-top: 10px">
+                <label for="hireExperience">Experience</label>
+                <select id="hireExperience">
+                  <option value="JUNIOR">Junior</option>
+                  <option value="MID_LEVEL">Mid-level</option>
+                  <option value="SENIOR">Senior</option>
+                </select>
+                <label for="hireQuantity">Quantity</label>
+                <select id="hireQuantity">
+                  <option value="1">1</option><option value="2">2</option>
+                  <option value="3">3</option><option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <p id="hirePreview" class="muted">Select an option to preview cost and availability.</p>
+              <button id="hireButton" class="primary">Confirm Hire</button>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
     <script type="module" src="./src/main.ts"></script>

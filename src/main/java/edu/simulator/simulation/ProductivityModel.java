@@ -9,13 +9,22 @@ import edu.simulator.model.Team;
 public class ProductivityModel {
     public ProductivityResult calculate(Team team, WorkIntensity intensity, double fatigue,
                                        double schedulePressure, SimulationConfiguration config) {
+        MentoringModel.MentoringResult mentoring = new MentoringModel().calculate(team, 0, config);
+        return calculate(team, intensity, fatigue, schedulePressure, config, mentoring);
+    }
+
+    public ProductivityResult calculate(Team team, WorkIntensity intensity, double fatigue,
+                                        double schedulePressure, SimulationConfiguration config,
+                                        MentoringModel.MentoringResult mentoring) {
         int totalTeamSize = team.totalCount();
-        double coordinationPenalty = new CoordinationModel().calculatePenalty(totalTeamSize, team.count(Role.PROJECT_MANAGER), config);
+        double coordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
         double fatigueModifier = 1.0 - Math.max(0.0, fatigue * 0.45);
         double schedulePressureModifier = 1.0 + Math.min(0.35, schedulePressure * 0.25);
 
         double effectiveProductivity = 0.0;
         double developerEffectiveCapacity = 0.0;
+        double qaEffectiveCapacity = 0.0;
+        double devopsEffectiveCapacity = 0.0;
         for (Employee employee : team.allEmployees()) {
             if (!employee.isActive()) {
                 continue;
@@ -31,40 +40,46 @@ public class ProductivityModel {
                 case MID_LEVEL -> config.getProductivity().getMid();
                 case SENIOR -> config.getProductivity().getSenior();
             };
-            double onboardingFactor = 0.25 + (0.75 * employee.getOnboardingProgress());
-            double fatigueImpact = 1.0 - fatigue * 0.5;
+            double onboardingFactor = employee.getOnboardingProgress();
+            double fatigueImpact = 1.0 - employee.getFatigue() * 0.5;
             double intensityModifier = switch (intensity) {
                 case SUSTAINABLE -> 1.0;
                 case INCREASED -> 1.12;
                 case CRUNCH -> 1.18;
             };
-            double roleCapacity = roleWeight * experienceMultiplier * onboardingFactor * fatigueImpact * intensityModifier;
+            double mentoringModifier = new MentoringModel().directProductivityModifier(
+                    employee, mentoring, config);
+            double roleCapacity = roleWeight * experienceMultiplier * onboardingFactor
+                    * fatigueImpact * intensityModifier * mentoringModifier;
             effectiveProductivity += roleCapacity;
             if (employee.getRole() == Role.DEVELOPER) {
                 developerEffectiveCapacity += roleCapacity;
+            } else if (employee.getRole() == Role.QA_ENGINEER) {
+                qaEffectiveCapacity += roleCapacity;
+            } else if (employee.getRole() == Role.DEVOPS_ENGINEER) {
+                devopsEffectiveCapacity += roleCapacity;
             }
         }
 
         effectiveProductivity *= (1.0 - coordinationPenalty) * fatigueModifier * schedulePressureModifier;
         developerEffectiveCapacity *= (1.0 - coordinationPenalty) * fatigueModifier * schedulePressureModifier;
+        qaEffectiveCapacity *= (1.0 - coordinationPenalty) * fatigueModifier * schedulePressureModifier;
+        devopsEffectiveCapacity *= (1.0 - coordinationPenalty) * fatigueModifier * schedulePressureModifier;
         effectiveProductivity = Math.max(0.0, effectiveProductivity);
         developerEffectiveCapacity = Math.max(0.0, developerEffectiveCapacity);
+        qaEffectiveCapacity = Math.max(0.0, qaEffectiveCapacity);
+        devopsEffectiveCapacity = Math.max(0.0, devopsEffectiveCapacity);
 
-        return new ProductivityResult(effectiveProductivity, developerEffectiveCapacity, coordinationPenalty, fatigueModifier, schedulePressureModifier,
+        return new ProductivityResult(effectiveProductivity, developerEffectiveCapacity,
+                qaEffectiveCapacity, devopsEffectiveCapacity, coordinationPenalty,
+                mentoring, fatigueModifier, schedulePressureModifier,
                 totalTeamSize, intensity);
     }
 
-    public record ProductivityResult(double totalEffectiveCapacity, double developerEffectiveCapacity, double coordinationPenalty,
+    public record ProductivityResult(double totalEffectiveCapacity, double developerEffectiveCapacity,
+                                    double qaEffectiveCapacity, double devopsEffectiveCapacity,
+                                    double coordinationPenalty, MentoringModel.MentoringResult mentoring,
                                     double fatigueModifier, double schedulePressureModifier,
                                     int totalTeamSize, WorkIntensity intensity) {
-    }
-
-    public static class CoordinationModel {
-        private double calculatePenalty(int teamSize, int managerCount, SimulationConfiguration config) {
-            double effectiveSize = Math.max(1, teamSize - managerCount);
-            double overhead = (effectiveSize * (effectiveSize - 1.0)) / 120.0;
-            double penalty = Math.min(config.getProductivity().getCoordinationMaxPenalty(), overhead);
-            return Math.max(0.0, penalty);
-        }
     }
 }

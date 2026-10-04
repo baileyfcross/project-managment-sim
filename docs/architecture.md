@@ -8,11 +8,11 @@ The Java backend contains the domain model, configuration, scenarios, simulation
 
 ## Frontend
 
-The frontend is a Vite-based TypeScript application rendered inside JavaFX WebView. In Phase 1 it provides the default-scenario team builder and active-project dashboard. The UI remains focused on presenting model state and sending decisions to the Java bridge.
+The frontend is a Vite-based TypeScript application rendered inside JavaFX WebView. It provides the initial team builder, active-project dashboard, and in-project Manage Team panel. The UI presents staffing DTOs and hiring previews, then sends hiring and work-intensity decisions to the Java bridge.
 
 ## Java and JavaScript Bridge
 
-The JavaBridge exposes only JSON-based setup and gameplay operations: read setup values, update the initial team, start with a selected seed, change work intensity, and advance a week. It does not expose domain objects or simulation history to normal gameplay. Java owns all authoritative state and calculations; TypeScript renders the returned DTOs.
+The JavaBridge exposes only JSON-based setup and gameplay operations: read setup values, update the initial team, start with a selected seed, read staffing state and hiring options, submit a hire decision, change work intensity, and advance a week. It does not expose domain objects or simulation history to normal gameplay. Java owns all authoritative state and calculations; TypeScript renders the returned DTOs.
 
 ## Gradle and Vite
 
@@ -20,8 +20,8 @@ Gradle is responsible for coordinating the build. It runs reproducible `npm ci` 
 
 ## Simulation Layers
 
-- Domain: project, employee, budget, work state, health, snapshots
-- Simulation: productivity, defects, fatigue, coordination, schedule pressure, forecast
+- Domain: project, employee, pending hire, onboarding state, budget, work state, health, snapshots
+- Simulation: experience-based productivity and cost, hiring delays, mentoring, onboarding, defects, fatigue, coordination, schedule pressure, forecast
 - Events: project events and scope changes
 - Reporting: final results and post-simulation analysis
 

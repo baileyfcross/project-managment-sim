@@ -4,15 +4,15 @@
 
 Week 0 is the initial setup state. The first advance simulates Week 1. Each completed turn updates the displayed project week and records exactly one snapshot for the end of that same week.
 
-The weekly calculation order is: calculate capacity; repair known rework; attempt remaining phase work and create defects; allow QA to discover defects; update schedule pressure, fatigue, and morale; apply seeded turnover and events; calculate costs; evaluate completion; and record one end-of-week snapshot.
+The weekly calculation order is: activate hires whose recruiting delay has elapsed; calculate capacity and mentoring; repair known rework; attempt remaining phase work and create defects; allow QA to discover defects; update schedule pressure, fatigue, and morale; progress onboarding; apply seeded turnover and events; calculate costs; evaluate completion; and record one end-of-week snapshot.
 
 ## Productivity
 
-Productivity is computed by a dedicated productivity model and work throughput uses developer capacity, not the aggregate capacity of non-development roles. The initial team is ready to contribute at the start of Week 1; later hiring and onboarding are outside this Phase 1 foundation.
+Productivity is computed by a dedicated productivity model and work throughput uses developer capacity, not aggregate team capacity. Junior, mid-level, and senior employees have configurable experience multipliers. Active hires contribute in proportion to onboarding effectiveness; initial staff begin fully integrated, while post-start hires join after a role-independent, experience-based recruiting delay and begin at configured initial effectiveness. QA and DevOps have separate effective capacities, and neither adds feature-development throughput.
 
 ## Defects
 
-The defect model creates defects from attempted work. Defect creation is influenced by fatigue, coordination overhead, and schedule pressure. The model supports an onboarding modifier, but initial Phase 1 staff begin ready to work and onboarding is not advanced during play. Defects move into unknown rework until QA discovers them.
+The defect model creates defects from attempted development work. Defect creation is influenced by fatigue, coordination overhead, schedule pressure, and the active developers' onboarding deficit. Defects move into unknown rework until QA discovers them. Discovery capacity is based on effective QA capacity.
 
 ## Unknown and known rework
 
@@ -24,7 +24,7 @@ The Java engine stores its active seed and uses one seeded random generator for 
 
 ## QA
 
-Testing is not treated as equivalent to feature development. QA engineers contribute by discovering hidden defects and reducing the time spent on future rework. The simulation tracks insufficient QA as a cause of hidden defect accumulation.
+Testing is not treated as equivalent to feature development. QA engineers contribute by discovering hidden defects and reducing the time spent on future rework. Discovery capacity scales with role, experience, fatigue, and team coordination.
 
 ## Fatigue
 
@@ -32,11 +32,11 @@ Fatigue is normalized from 0 to 1. It accumulates under increased or crunch work
 
 ## Hiring and onboarding
 
-In-project hiring and onboarding are planned for a later phase. The initial team builder configures the staff present at Week 0; those employees begin with full project onboarding effectiveness.
+The Week 0 team builder creates fully integrated initial staff using configurable default experience levels by role. In-project hires are selected by role, experience, and quantity. A configured one-time hiring fee is charged when the decision is accepted. Employees remain pending and incur no payroll or productivity until their recruiting delay expires; when they join, their weekly salary begins and onboarding starts at the configured initial effectiveness. Onboarding moves toward full effectiveness over the experience-specific duration, with progress slowed by low mentoring coverage. Junior employees and onboarding staff create mentoring demand; mid-level and senior employees provide capacity, with a bounded direct-productivity cost for mentoring.
 
 ## Coordination and schedule pressure
 
-Large teams create coordination overhead, which reduces effective productivity. Schedule pressure rises when work remains high and time is short. This influences delayer states, morale, overtime risk, and event probability.
+Coordination overhead follows a bounded square-root curve based on team pairs. Project managers and senior staff reduce the penalty. Schedule pressure rises when work remains high and time is short. This influences morale, overtime cost, and event probability. Payroll uses role- and experience-specific salary settings; the staffing view includes active payroll, pending hires, one-time hiring costs, and a cost forecast.
 
 ## Scoring
 

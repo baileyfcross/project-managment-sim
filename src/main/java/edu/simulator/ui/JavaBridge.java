@@ -6,6 +6,8 @@ import edu.simulator.configuration.ConfigurationLoader;
 import edu.simulator.configuration.ScenarioConfiguration;
 import edu.simulator.configuration.ScenarioLoader;
 import edu.simulator.configuration.SimulationConfiguration;
+import edu.simulator.decision.HiringDecision;
+import edu.simulator.model.ExperienceLevel;
 import edu.simulator.model.Role;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.SimulationEngine;
@@ -85,6 +87,25 @@ public class JavaBridge {
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new IllegalArgumentException("Unknown work intensity: " + intensity, exception);
         }
+        return getSimulationState();
+    }
+
+    public String getTeamManagementState() {
+        requireSimulation();
+        return writeJson(simulationEngine.getTeamManagementState());
+    }
+
+    public String hireEmployee(String roleName, String experienceName, int quantity) {
+        requireSimulation();
+        final Role role;
+        final ExperienceLevel experience;
+        try {
+            role = Role.valueOf(roleName);
+            experience = ExperienceLevel.valueOf(experienceName);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new IllegalArgumentException("Choose a valid role and experience level", exception);
+        }
+        simulationEngine.hire(new HiringDecision(role, experience, quantity));
         return getSimulationState();
     }
 

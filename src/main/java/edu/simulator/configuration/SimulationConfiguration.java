@@ -10,6 +10,9 @@ public class SimulationConfiguration {
     private Fatigue fatigue = new Fatigue();
     private Onboarding onboarding = new Onboarding();
     private Costs costs = new Costs();
+    private InitialTeamExperience initialTeamExperience = new InitialTeamExperience();
+    private Mentoring mentoring = new Mentoring();
+    private Coordination coordination = new Coordination();
     private Schedule schedule = new Schedule();
     private Turnover turnover = new Turnover();
 
@@ -61,6 +64,30 @@ public class SimulationConfiguration {
         this.costs = costs;
     }
 
+    public InitialTeamExperience getInitialTeamExperience() {
+        return initialTeamExperience;
+    }
+
+    public void setInitialTeamExperience(InitialTeamExperience initialTeamExperience) {
+        this.initialTeamExperience = initialTeamExperience;
+    }
+
+    public Mentoring getMentoring() {
+        return mentoring;
+    }
+
+    public void setMentoring(Mentoring mentoring) {
+        this.mentoring = mentoring;
+    }
+
+    public Coordination getCoordination() {
+        return coordination;
+    }
+
+    public void setCoordination(Coordination coordination) {
+        this.coordination = coordination;
+    }
+
     public Schedule getSchedule() {
         return schedule;
     }
@@ -79,8 +106,14 @@ public class SimulationConfiguration {
 
     public void validate() {
         if (productivity == null || quality == null || qa == null || fatigue == null
-                || onboarding == null || costs == null || schedule == null || turnover == null) {
+                || onboarding == null || costs == null || initialTeamExperience == null || mentoring == null
+                || coordination == null || schedule == null || turnover == null) {
             throw new IllegalArgumentException("Simulation configuration sections cannot be null");
+        }
+        if (initialTeamExperience.developer == null || initialTeamExperience.qaEngineer == null
+                || initialTeamExperience.devopsEngineer == null
+                || initialTeamExperience.projectManager == null) {
+            throw new IllegalArgumentException("Initial team experience settings cannot be null");
         }
         validateNonNegative(
                 productivity.junior, productivity.mid, productivity.senior,
@@ -88,21 +121,37 @@ public class SimulationConfiguration {
                 quality.baseDefectRate, quality.defectCap, quality.reworkCreationRate,
                 qa.baseDetectionRate, qa.capacityMultiplier, fatigue.recoveryRate,
                 fatigue.increasedWorkRate, fatigue.crunchRate, fatigue.maxValue,
-                fatigue.burnoutThreshold, onboarding.mentoringCapacity,
-                costs.juniorDeveloperWeekly, costs.midDeveloperWeekly, costs.seniorDeveloperWeekly,
-                costs.qaWeekly, costs.devopsWeekly, costs.projectManagerWeekly,
+                fatigue.burnoutThreshold,                 onboarding.initialEffectiveness,
+                mentoring.seniorCapacity, mentoring.midLevelCapacity,
+                mentoring.juniorDemand, mentoring.onboardingDemand,
+                mentoring.minimumProgressFactor, mentoring.maximumDirectProductivityLoss,
+                coordination.pairScale, coordination.projectManagerReduction,
+                coordination.seniorReduction, coordination.maximumPenalty,
+                costs.juniorQaWeekly, costs.midQaWeekly, costs.seniorQaWeekly,
+                costs.juniorDevopsWeekly, costs.midDevopsWeekly, costs.seniorDevopsWeekly,
+                costs.juniorProjectManagerWeekly, costs.midProjectManagerWeekly,
+                costs.seniorProjectManagerWeekly, costs.hiringCostJunior,
+                costs.hiringCostMidLevel, costs.hiringCostSenior,
                 costs.overtimePremiumRate, schedule.pressureWeight,
                 schedule.deadlineUrgencyWeight, schedule.targetScheduleHealth,
                 turnover.baseRate, turnover.fatigueWeight, turnover.pressureWeight,
                 turnover.moraleWeight, turnover.maxRate
         );
+        validateNonNegative(
+                costs.juniorDeveloperWeekly, costs.midDeveloperWeekly, costs.seniorDeveloperWeekly
+        );
         if (quality.baseDefectRate > 1 || quality.defectCap > 1 || qa.baseDetectionRate > 1
                 || fatigue.maxValue > 1 || fatigue.burnoutThreshold > 1
-                || productivity.coordinationMaxPenalty > 1 || turnover.maxRate > 1) {
+                || productivity.coordinationMaxPenalty > 1 || turnover.maxRate > 1
+                || onboarding.initialEffectiveness > 1 || mentoring.minimumProgressFactor > 1
+                || mentoring.maximumDirectProductivityLoss > 1
+                || coordination.projectManagerReduction > 1 || coordination.seniorReduction > 1
+                || coordination.maximumPenalty > 1) {
             throw new IllegalArgumentException("Probability and normalized configuration values must not exceed 1");
         }
         if (onboarding.juniorWeeks < 1 || onboarding.midWeeks < 1 || onboarding.seniorWeeks < 1
-                || costs.hiringDelayWeeks < 0) {
+                || costs.hiringDelayWeeks < 0 || costs.juniorHiringDelayWeeks < 0
+                || costs.midHiringDelayWeeks < 0 || costs.seniorHiringDelayWeeks < 0) {
             throw new IllegalArgumentException("Onboarding durations must be positive and hiring delay non-negative");
         }
     }
@@ -267,6 +316,7 @@ public class SimulationConfiguration {
         private int midWeeks = 3;
         private int seniorWeeks = 2;
         private double mentoringCapacity = 0.4;
+        private double initialEffectiveness = 0.4;
 
         public int getJuniorWeeks() {
             return juniorWeeks;
@@ -299,16 +349,99 @@ public class SimulationConfiguration {
         public void setMentoringCapacity(double mentoringCapacity) {
             this.mentoringCapacity = mentoringCapacity;
         }
+
+        public double getInitialEffectiveness() {
+            return initialEffectiveness;
+        }
+
+        public void setInitialEffectiveness(double initialEffectiveness) {
+            this.initialEffectiveness = initialEffectiveness;
+        }
+    }
+
+    public static class Mentoring {
+        private double seniorCapacity = 1.0;
+        private double midLevelCapacity = 0.5;
+        private double juniorDemand = 0.45;
+        private double onboardingDemand = 0.35;
+        private double minimumProgressFactor = 0.25;
+        private double maximumDirectProductivityLoss = 0.25;
+
+        public double getSeniorCapacity() { return seniorCapacity; }
+        public void setSeniorCapacity(double value) { seniorCapacity = value; }
+        public double getMidLevelCapacity() { return midLevelCapacity; }
+        public void setMidLevelCapacity(double value) { midLevelCapacity = value; }
+        public double getJuniorDemand() { return juniorDemand; }
+        public void setJuniorDemand(double value) { juniorDemand = value; }
+        public double getOnboardingDemand() { return onboardingDemand; }
+        public void setOnboardingDemand(double value) { onboardingDemand = value; }
+        public double getMinimumProgressFactor() { return minimumProgressFactor; }
+        public void setMinimumProgressFactor(double value) { minimumProgressFactor = value; }
+        public double getMaximumDirectProductivityLoss() { return maximumDirectProductivityLoss; }
+        public void setMaximumDirectProductivityLoss(double value) { maximumDirectProductivityLoss = value; }
+    }
+
+    public static class Coordination {
+        private double pairScale = 0.011;
+        private double projectManagerReduction = 0.18;
+        private double seniorReduction = 0.025;
+        private double maximumPenalty = 0.45;
+
+        public double getPairScale() { return pairScale; }
+        public void setPairScale(double value) { pairScale = value; }
+        public double getProjectManagerReduction() { return projectManagerReduction; }
+        public void setProjectManagerReduction(double value) { projectManagerReduction = value; }
+        public double getSeniorReduction() { return seniorReduction; }
+        public void setSeniorReduction(double value) { seniorReduction = value; }
+        public double getMaximumPenalty() { return maximumPenalty; }
+        public void setMaximumPenalty(double value) { maximumPenalty = value; }
+    }
+
+    public static class InitialTeamExperience {
+        private edu.simulator.model.ExperienceLevel developer = edu.simulator.model.ExperienceLevel.MID_LEVEL;
+        private edu.simulator.model.ExperienceLevel qaEngineer = edu.simulator.model.ExperienceLevel.MID_LEVEL;
+        private edu.simulator.model.ExperienceLevel devopsEngineer = edu.simulator.model.ExperienceLevel.MID_LEVEL;
+        private edu.simulator.model.ExperienceLevel projectManager = edu.simulator.model.ExperienceLevel.SENIOR;
+
+        public edu.simulator.model.ExperienceLevel getDeveloper() { return developer; }
+        public void setDeveloper(edu.simulator.model.ExperienceLevel value) { developer = value; }
+        public edu.simulator.model.ExperienceLevel getQaEngineer() { return qaEngineer; }
+        public void setQaEngineer(edu.simulator.model.ExperienceLevel value) { qaEngineer = value; }
+        public edu.simulator.model.ExperienceLevel getDevopsEngineer() { return devopsEngineer; }
+        public void setDevopsEngineer(edu.simulator.model.ExperienceLevel value) { devopsEngineer = value; }
+        public edu.simulator.model.ExperienceLevel getProjectManager() { return projectManager; }
+        public void setProjectManager(edu.simulator.model.ExperienceLevel value) { projectManager = value; }
+
+        public edu.simulator.model.ExperienceLevel forRole(edu.simulator.model.Role role) {
+            return switch (role) {
+                case DEVELOPER -> developer;
+                case QA_ENGINEER -> qaEngineer;
+                case DEVOPS_ENGINEER -> devopsEngineer;
+                case PROJECT_MANAGER -> projectManager;
+            };
+        }
     }
 
     public static class Costs {
         private double juniorDeveloperWeekly = 1500.0;
         private double midDeveloperWeekly = 2100.0;
         private double seniorDeveloperWeekly = 2900.0;
-        private double qaWeekly = 1900.0;
-        private double devopsWeekly = 2400.0;
-        private double projectManagerWeekly = 2600.0;
+        private double juniorQaWeekly = 1400.0;
+        private double midQaWeekly = 1900.0;
+        private double seniorQaWeekly = 2500.0;
+        private double juniorDevopsWeekly = 1700.0;
+        private double midDevopsWeekly = 2400.0;
+        private double seniorDevopsWeekly = 3100.0;
+        private double juniorProjectManagerWeekly = 1800.0;
+        private double midProjectManagerWeekly = 2600.0;
+        private double seniorProjectManagerWeekly = 3400.0;
         private int hiringDelayWeeks = 1;
+        private int juniorHiringDelayWeeks = 1;
+        private int midHiringDelayWeeks = 2;
+        private int seniorHiringDelayWeeks = 3;
+        private double hiringCostJunior = 1000.0;
+        private double hiringCostMidLevel = 1500.0;
+        private double hiringCostSenior = 2500.0;
         private double overtimePremiumRate = 0.15;
 
         public double getJuniorDeveloperWeekly() {
@@ -335,28 +468,47 @@ public class SimulationConfiguration {
             this.seniorDeveloperWeekly = seniorDeveloperWeekly;
         }
 
+        public double getJuniorQaWeekly() { return juniorQaWeekly; }
+        public void setJuniorQaWeekly(double value) { juniorQaWeekly = value; }
+        public double getMidQaWeekly() { return midQaWeekly; }
+        public void setMidQaWeekly(double value) { midQaWeekly = value; }
+        public double getSeniorQaWeekly() { return seniorQaWeekly; }
+        public void setSeniorQaWeekly(double value) { seniorQaWeekly = value; }
+        public double getJuniorDevopsWeekly() { return juniorDevopsWeekly; }
+        public void setJuniorDevopsWeekly(double value) { juniorDevopsWeekly = value; }
+        public double getMidDevopsWeekly() { return midDevopsWeekly; }
+        public void setMidDevopsWeekly(double value) { midDevopsWeekly = value; }
+        public double getSeniorDevopsWeekly() { return seniorDevopsWeekly; }
+        public void setSeniorDevopsWeekly(double value) { seniorDevopsWeekly = value; }
+        public double getJuniorProjectManagerWeekly() { return juniorProjectManagerWeekly; }
+        public void setJuniorProjectManagerWeekly(double value) { juniorProjectManagerWeekly = value; }
+        public double getMidProjectManagerWeekly() { return midProjectManagerWeekly; }
+        public void setMidProjectManagerWeekly(double value) { midProjectManagerWeekly = value; }
+        public double getSeniorProjectManagerWeekly() { return seniorProjectManagerWeekly; }
+        public void setSeniorProjectManagerWeekly(double value) { seniorProjectManagerWeekly = value; }
+
         public double getQaWeekly() {
-            return qaWeekly;
+            return midQaWeekly;
         }
 
         public void setQaWeekly(double qaWeekly) {
-            this.qaWeekly = qaWeekly;
+            this.midQaWeekly = qaWeekly;
         }
 
         public double getDevopsWeekly() {
-            return devopsWeekly;
+            return midDevopsWeekly;
         }
 
         public void setDevopsWeekly(double devopsWeekly) {
-            this.devopsWeekly = devopsWeekly;
+            this.midDevopsWeekly = devopsWeekly;
         }
 
         public double getProjectManagerWeekly() {
-            return projectManagerWeekly;
+            return midProjectManagerWeekly;
         }
 
         public void setProjectManagerWeekly(double projectManagerWeekly) {
-            this.projectManagerWeekly = projectManagerWeekly;
+            this.midProjectManagerWeekly = projectManagerWeekly;
         }
 
         public int getHiringDelayWeeks() {
@@ -365,6 +517,60 @@ public class SimulationConfiguration {
 
         public void setHiringDelayWeeks(int hiringDelayWeeks) {
             this.hiringDelayWeeks = hiringDelayWeeks;
+        }
+
+        public int getJuniorHiringDelayWeeks() { return juniorHiringDelayWeeks; }
+        public void setJuniorHiringDelayWeeks(int value) { juniorHiringDelayWeeks = value; }
+        public int getMidHiringDelayWeeks() { return midHiringDelayWeeks; }
+        public void setMidHiringDelayWeeks(int value) { midHiringDelayWeeks = value; }
+        public int getSeniorHiringDelayWeeks() { return seniorHiringDelayWeeks; }
+        public void setSeniorHiringDelayWeeks(int value) { seniorHiringDelayWeeks = value; }
+        public double getHiringCostJunior() { return hiringCostJunior; }
+        public void setHiringCostJunior(double value) { hiringCostJunior = value; }
+        public double getHiringCostMidLevel() { return hiringCostMidLevel; }
+        public void setHiringCostMidLevel(double value) { hiringCostMidLevel = value; }
+        public double getHiringCostSenior() { return hiringCostSenior; }
+        public void setHiringCostSenior(double value) { hiringCostSenior = value; }
+
+        public double weeklySalary(edu.simulator.model.Role role, edu.simulator.model.ExperienceLevel level) {
+            return switch (role) {
+                case DEVELOPER -> switch (level) {
+                    case JUNIOR -> juniorDeveloperWeekly;
+                    case MID_LEVEL -> midDeveloperWeekly;
+                    case SENIOR -> seniorDeveloperWeekly;
+                };
+                case QA_ENGINEER -> switch (level) {
+                    case JUNIOR -> juniorQaWeekly;
+                    case MID_LEVEL -> midQaWeekly;
+                    case SENIOR -> seniorQaWeekly;
+                };
+                case DEVOPS_ENGINEER -> switch (level) {
+                    case JUNIOR -> juniorDevopsWeekly;
+                    case MID_LEVEL -> midDevopsWeekly;
+                    case SENIOR -> seniorDevopsWeekly;
+                };
+                case PROJECT_MANAGER -> switch (level) {
+                    case JUNIOR -> juniorProjectManagerWeekly;
+                    case MID_LEVEL -> midProjectManagerWeekly;
+                    case SENIOR -> seniorProjectManagerWeekly;
+                };
+            };
+        }
+
+        public int hiringDelayWeeks(edu.simulator.model.ExperienceLevel level) {
+            return switch (level) {
+                case JUNIOR -> juniorHiringDelayWeeks;
+                case MID_LEVEL -> midHiringDelayWeeks;
+                case SENIOR -> seniorHiringDelayWeeks;
+            };
+        }
+
+        public double hiringCost(edu.simulator.model.ExperienceLevel level) {
+            return switch (level) {
+                case JUNIOR -> hiringCostJunior;
+                case MID_LEVEL -> hiringCostMidLevel;
+                case SENIOR -> hiringCostSenior;
+            };
         }
 
         public double getOvertimePremiumRate() {

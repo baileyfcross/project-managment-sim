@@ -11,7 +11,9 @@ public class Employee {
     private double fatigue;
     private double morale;
     private double baseWeeklyCost;
-    private double onboardingProgress;
+    private double onboardingProgress = 1.0;
+    private int onboardingDurationWeeks;
+    private OnboardingState onboardingState = OnboardingState.FULLY_INTEGRATED;
     private boolean active;
 
     public Employee(Role role, ExperienceLevel experienceLevel, double baseWeeklyCost) {
@@ -48,6 +50,17 @@ public class Employee {
         weeksOnProject++;
     }
 
+    public int getOnboardingDurationWeeks() {
+        return onboardingDurationWeeks;
+    }
+
+    public void setOnboardingDurationWeeks(int onboardingDurationWeeks) {
+        if (onboardingDurationWeeks < 1) {
+            throw new IllegalArgumentException("Onboarding duration must be positive");
+        }
+        this.onboardingDurationWeeks = onboardingDurationWeeks;
+    }
+
     public double getFatigue() {
         return fatigue;
     }
@@ -81,6 +94,14 @@ public class Employee {
 
     public void setOnboardingProgress(double onboardingProgress) {
         this.onboardingProgress = clamp(onboardingProgress);
+    }
+
+    public OnboardingState getOnboardingState() {
+        return onboardingState;
+    }
+
+    public void setOnboardingState(OnboardingState onboardingState) {
+        this.onboardingState = Objects.requireNonNull(onboardingState, "onboardingState");
     }
 
     public boolean isActive() {
