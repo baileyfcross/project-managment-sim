@@ -11,12 +11,17 @@ public final class ScenarioLoader {
     }
 
     public static ScenarioConfiguration loadScenario(String scenarioId) {
+        if (scenarioId == null || !scenarioId.matches("[a-zA-Z0-9_-]+")) {
+            throw new IllegalArgumentException("Scenario id contains unsupported characters");
+        }
         String resourcePath = "/scenarios/" + scenarioId + ".json";
         try (InputStream inputStream = ScenarioLoader.class.getResourceAsStream(resourcePath)) {
             if (inputStream == null) {
                 throw new IllegalStateException("Scenario not found: " + scenarioId);
             }
-            return OBJECT_MAPPER.readValue(inputStream, ScenarioConfiguration.class);
+            ScenarioConfiguration scenario = OBJECT_MAPPER.readValue(inputStream, ScenarioConfiguration.class);
+            scenario.validate();
+            return scenario;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load scenario: " + scenarioId, e);
         }

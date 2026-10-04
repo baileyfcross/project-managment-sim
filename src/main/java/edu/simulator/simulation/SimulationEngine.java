@@ -1,13 +1,18 @@
 package edu.simulator.simulation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.simulator.configuration.ScenarioConfiguration;
 import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.event.EventType;
 import edu.simulator.event.ProjectEvent;
-import edu.simulator.model.*;
+import edu.simulator.model.Employee;
+import edu.simulator.model.ExperienceLevel;
+import edu.simulator.model.Project;
+import edu.simulator.model.ProjectPhase;
+import edu.simulator.model.Role;
+import edu.simulator.model.Team;
+import edu.simulator.model.WeeklySnapshot;
+import edu.simulator.model.WorkState;
 import edu.simulator.report.FinalProjectReport;
-import edu.simulator.report.ScoringService;
 import edu.simulator.ui.SimulationStateDto;
 
 import java.math.BigDecimal;
@@ -19,15 +24,18 @@ import java.util.Map;
 import java.util.Random;
 
 public class SimulationEngine {
+    private static final double WORK_UNITS_PER_PRODUCTIVITY = 180.0;
+    private static final int RECENT_MESSAGE_LIMIT = 8;
+
     private final ScenarioConfiguration scenario;
     private final SimulationConfiguration config;
     private final Random random;
+    private final long seed;
     private final Project project;
     private final Team team;
     private final List<WeeklySnapshot> history = new ArrayList<>();
     private final List<ProjectEvent> events = new ArrayList<>();
     private final List<String> messages = new ArrayList<>();
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private double fatigue = 0.18;
     private double morale = 0.72;
     private double schedulePressure = 0.15;
@@ -35,44 +43,67 @@ public class SimulationEngine {
     private boolean complete;
     private int totalTurnover;
     private int defectsReleased;
+    private BigDecimal lastWeeklyCost = BigDecimal.ZERO;
 
     public SimulationEngine(ScenarioConfiguration scenario, SimulationConfiguration config, long seed) {
+        this(scenario, config, seed, readScenarioTeam(scenario));
+    }
+
+    public SimulationEngine(ScenarioConfiguration scenario, SimulationConfiguration config,
+                            long seed, Map<Role, Integer> initialTeam) {
         this.scenario = scenario;
         this.config = config;
+        this.seed = seed;
         this.random = new Random(seed);
-        this.project = new Project(scenario.getId(), scenario.getName(), scenario.getDeadlineWeeks(), scenario.getBudget());
+        this.project = new Project(scenario.getId(), scenario.getName(),
+                scenario.getDeadlineWeeks(), scenario.getBudget());
         this.team = new Team();
-        this.messages.add("Project initialized. The team has been assembled.");
         initializeScenarioWork();
-        initializeTeam();
+        initializeTeam(initialTeam);
+        messages.add("Project initialized. Advance from Week 0 to begin the first simulated week.");
     }
 
     public void initializeScenarioWork() {
         for (Map.Entry<String, Double> entry : scenario.getScope().entrySet()) {
             ProjectPhase phase = phaseFromKey(entry.getKey());
-            this.project.getWorkState().setTotalWork(phase, entry.getValue());
+            project.getWorkState().setTotalWork(phase, entry.getValue());
         }
     }
 
-    public void initializeTeam() {
-        Map<String, Integer> counts = scenario.getInitialTeam();
-        if (counts == null) {
-            return;
-        }
-        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-            Role role = roleFromKey(entry.getKey());
-            int count = Math.max(0, entry.getValue());
+    private void initializeTeam(Map<Role, Integer> counts) {
+        for (Role role : Role.values()) {
+            int count = counts.getOrDefault(role, 0);
+            if (count < 0) {
+                throw new IllegalArgumentException("Initial " + role + " count cannot be negative");
+            }
             for (int index = 0; index < count; index++) {
                 ExperienceLevel level = assignDefaultExperience(role);
                 Employee employee = new Employee(role, level, weeklyRateFor(role, level));
-                employee.setOnboardingProgress(0.0);
+                employee.setOnboardingProgress(1.0);
                 team.addEmployee(employee);
             }
         }
     }
 
+    private static Map<Role, Integer> readScenarioTeam(ScenarioConfiguration scenario) {
+        Map<Role, Integer> counts = new EnumMap<>(Role.class);
+        for (Role role : Role.values()) {
+            counts.put(role, 0);
+        }
+        if (scenario.getInitialTeam() == null) {
+            return counts;
+        }
+        for (Map.Entry<String, Integer> entry : scenario.getInitialTeam().entrySet()) {
+            counts.put(roleFromKey(entry.getKey()), entry.getValue());
+        }
+        return counts;
+    }
+
     public void setWorkIntensity(WorkIntensity workIntensity) {
-        this.workIntensity = workIntensity == null ? WorkIntensity.SUSTAINABLE : workIntensity;
+        if (workIntensity == null) {
+            throw new IllegalArgumentException("Work intensity is required");
+        }
+        this.workIntensity = workIntensity;
     }
 
     public Project getProject() {
@@ -87,175 +118,150 @@ public class SimulationEngine {
         return project.getCurrentWeek();
     }
 
+    public long getSeed() {
+        return seed;
+    }
+
     public boolean isComplete() {
         return complete;
     }
 
-    public SimulationStateDto getCurrentState() {
-        double actualProgress = project.calculateTrueProgress();
-        double perceivedProgress = project.calculatePerceivedProgress();
-        int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(project, productivityForUi(), project.getWorkState().totalKnownRework());
-        BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
-        Map<String, Integer> teamCounts = new HashMap<>();
-        for (Role role : Role.values()) {
-            teamCounts.put(role.name(), team.count(role));
-        }
-        Map<String, Double> phaseProgress = new HashMap<>();
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            phaseProgress.put(phase.name(), project.getWorkState().getCompletedWork(phase) / Math.max(1.0, project.getWorkState().getTotalWork(phase)));
-        }
+    public List<WeeklySnapshot> getHistory() {
+        return List.copyOf(history);
+    }
 
+    public List<ProjectEvent> getEvents() {
+        return List.copyOf(events);
+    }
+
+    public SimulationStateDto getCurrentState() {
+        BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
+        double weeklyWorkCapacity = developerCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
+        int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(project, weeklyWorkCapacity);
+        int estimatedWeeksToFinish = estimatedCompletionWeek < 0
+                ? 0 : Math.max(0, estimatedCompletionWeek - project.getCurrentWeek());
+        BigDecimal forecastCost = project.getSpent().add(
+                payroll.multiply(BigDecimal.valueOf(estimatedWeeksToFinish)));
         return new SimulationStateDto(
                 project.getCurrentWeek(),
+                seed,
                 scenario.getDeadlineWeeks(),
                 scenario.getBudget(),
                 project.getSpent(),
                 project.getRemainingBudget(),
-                payroll.doubleValue(),
-                project.getRemainingBudget().doubleValue(),
+                lastWeeklyCost,
+                forecastCost,
                 estimatedCompletionWeek,
-                perceivedProgress,
-                actualProgress,
-                phaseProgress,
-                teamCounts,
+                project.calculatePerceivedProgress(),
+                roleCounts(),
                 scheduleHealthLabel(),
                 budgetHealthLabel(),
                 qualityHealthLabel(),
                 moraleHealthLabel(),
                 messages,
-                project.getWorkState().totalKnownRework(),
-                project.getWorkState().totalUnknownRework(),
-                fatigue,
-                morale,
-                schedulePressure,
-                project.getWorkState().totalRemainingWork(),
-                project.getWorkState().totalKnownRework(),
-                project.getDeadlineWeeks(),
-                project.getBudget(),
-                project.getSpent(),
-                project.getRemainingBudget(),
-                scenario.getName(),
-                events.isEmpty() ? "No events" : events.get(events.size() - 1).getSummary()
+                workIntensity,
+                complete
         );
     }
 
+    /**
+     * Simulates the next week in a fixed order and records exactly one snapshot
+     * representing that week's end.
+     */
     public void advanceWeek() {
         if (complete) {
             return;
         }
 
-        for (Employee employee : team.allEmployees()) {
-            employee.incrementWeek();
-            int onboardingWeeks = onboardingWeeksFor(employee.getExperienceLevel());
-            if (employee.getWeeksOnProject() <= onboardingWeeks) {
-                employee.setOnboardingProgress(Math.min(1.0, employee.getWeeksOnProject() / (double) onboardingWeeks));
-            } else {
-                employee.setOnboardingProgress(1.0);
-            }
-        }
-
+        int simulatedWeek = project.getCurrentWeek() + 1;
+        project.setCurrentWeek(simulatedWeek);
         double coordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
-        ProductivityModel.ProductivityResult productivityResult = new ProductivityModel().calculate(team, workIntensity, fatigue, schedulePressure, config);
-        double totalCapacity = productivityResult.totalEffectiveCapacity();
-        double qualityRate = new DefectModel().defectProbability(config.getQuality().getBaseDefectRate(), fatigue, schedulePressure, coordinationPenalty, 0.45, config);
+        ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculate(
+                team, workIntensity, fatigue, schedulePressure, config);
+        double workCapacity = productivity.developerEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
+        double defectRate = new DefectModel().defectProbability(
+                config.getQuality().getBaseDefectRate(), fatigue, schedulePressure,
+                coordinationPenalty, 0.0, config);
 
-        double output = Math.max(0.0, totalCapacity * 180.0);
-        double phaseAllocation = output / 5.0;
+        workCapacity = completeKnownRework(workCapacity, defectRate);
+        performNewWork(workCapacity, defectRate);
+        discoverDefects();
 
-        ProjectPhase[] phases = ProjectPhase.values();
-        for (ProjectPhase phase : phases) {
-            double totalForPhase = project.getWorkState().getTotalWork(phase);
-            double remainingForPhase = Math.max(0.0, totalForPhase - project.getWorkState().getCompletedWork(phase));
-            double completedContribution = Math.min(remainingForPhase, phaseAllocation * phaseWeight(phase));
-            project.getWorkState().addCompletedWork(phase, completedContribution);
-        }
-
-        double defectUnits = Math.max(0.0, output * qualityRate * 0.6);
-        double reworkFromDefects = Math.max(0.0, defectUnits * 0.35);
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            project.getWorkState().addUnknownRework(phase, defectUnits * phaseWeight(phase) * 0.2);
-        }
-
-        double qaCapacity = team.count(Role.QA_ENGINEER) * (1.0 + config.getQa().getCapacityMultiplier()) * 40.0;
-        double discovered = Math.min(project.getWorkState().totalUnknownRework(), qaCapacity * (0.08 + config.getQa().getBaseDetectionRate()));
-        if (discovered > 0.0) {
-            for (ProjectPhase phase : ProjectPhase.values()) {
-                double phaseUnknown = project.getWorkState().getUnknownRework(phase);
-                double moved = Math.min(phaseUnknown, discovered * phaseWeight(phase));
-                project.getWorkState().addKnownRework(phase, moved);
-                project.getWorkState().addUnknownRework(phase, -moved);
-                discovered -= moved;
-                if (discovered <= 0.0) {
-                    break;
-                }
-            }
-        }
-
-        double reworkCapacity = Math.max(0.0, totalCapacity * 120.0 * 0.45);
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            double known = project.getWorkState().getKnownRework(phase);
-            double fixed = Math.min(known, reworkCapacity * phaseWeight(phase));
-            project.getWorkState().addCompletedRework(phase, fixed);
-            project.getWorkState().addKnownRework(phase, -fixed);
-            project.getWorkState().addCompletedWork(phase, fixed * 0.7);
-            reworkCapacity -= fixed;
-        }
-
-        double totalKnown = project.getWorkState().totalKnownRework();
-        schedulePressure = new SchedulePressureModel().calculate(project, project.getWorkState().totalRemainingWork(), totalCapacity, totalKnown, config);
+        schedulePressure = new SchedulePressureModel().calculate(
+                project, project.getWorkState().perceivedRemainingWork(),
+                Math.max(1.0, workCapacity), project.getWorkState().totalKnownRework(), config);
         project.recordSchedulePressure(schedulePressure);
-
         fatigue = new FatigueModel().updateFatigue(fatigue, workIntensity, config);
-        morale = clamp(morale - (schedulePressure * 0.18) + (workIntensity == WorkIntensity.SUSTAINABLE ? 0.03 : -0.02));
+        morale = clamp(morale - schedulePressure * 0.18
+                + (workIntensity == WorkIntensity.SUSTAINABLE ? 0.03 : -0.02));
 
-        int turnover = new TurnoverModel().calculateTurnover(team, fatigue, morale, schedulePressure, config, random);
-        totalTurnover += turnover;
-        if (turnover > 0) {
-            messages.add(turnover + " employees left the team. Replacement hiring is now necessary.");
-            events.add(new ProjectEvent(EventType.EMPLOYEE_RESIGNATION, turnover + " employees exited the project."));
+        int departures = new TurnoverModel().calculateTurnover(
+                team, fatigue, morale, schedulePressure, config, random);
+        totalTurnover += departures;
+        if (departures > 0) {
+            team.removeInactiveEmployees();
+            addMessage(departures + " team member(s) left the project.");
+            events.add(new ProjectEvent(EventType.EMPLOYEE_RESIGNATION,
+                    departures + " employees exited the project in Week " + simulatedWeek + ".",
+                    simulatedWeek));
         }
 
         BigDecimal payroll = new CostModel().calculateWeeklyPayroll(team, config);
-        BigDecimal overtimeCost = new CostModel().calculateOvertimeCost(payroll, workIntensity, config);
-        BigDecimal weeklyCost = payroll.add(overtimeCost);
-        project.addSpent(weeklyCost);
-
-        if (project.getRemainingBudget().compareTo(BigDecimal.ZERO) <= 0 && scenario.isBudgetFailureAllowed()) {
-            complete = true;
-            messages.add("The project has exceeded the available budget.");
-            events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM, "Budget pressure has forced the project to end."));
-        }
-
-        if (project.getCurrentWeek() >= scenario.getDeadlineWeeks() && project.getWorkState().totalRemainingWork() > 0.0) {
-            complete = true;
-            messages.add("The deadline was reached before completion. The project closed with unresolved work.");
-            events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM, "Deadline missed."));
-        }
+        BigDecimal overtime = new CostModel().calculateOvertimeCost(payroll, workIntensity, config);
+        lastWeeklyCost = payroll.add(overtime);
+        project.addSpent(lastWeeklyCost);
 
         if (schedulePressure > 0.8 && random.nextDouble() < 0.25) {
-            events.add(new ProjectEvent(EventType.PRODUCTION_BUG, "Production issues emerged under heavy schedule pressure."));
-            messages.add("A production bug threatened the delivery plan.");
+            events.add(new ProjectEvent(EventType.PRODUCTION_BUG,
+                    "Production issues emerged under heavy schedule pressure in Week " + simulatedWeek + ".",
+                    simulatedWeek));
+            addMessage("Production issues emerged under heavy schedule pressure.");
         }
 
-        history.add(new WeeklySnapshot(project.getCurrentWeek(), project.getSpent(), project.getRemainingBudget(), weeklyCost.doubleValue(),
-                project.calculatePerceivedProgress(), project.calculateTrueProgress(), schedulePressure, fatigue, team.totalCount(), new ArrayList<>(messages)));
-
-        if (project.getWorkState().totalRemainingWork() <= 0.0 && project.getWorkState().totalKnownRework() <= 0.0) {
+        if (project.getWorkState().isReleaseReady()) {
             complete = true;
-            messages.add("The project reached a release-ready state.");
-            events.add(new ProjectEvent(EventType.CUSTOMER_FEATURE_REQUEST, "The project is ready to release."));
+            defectsReleased = (int) Math.round(project.getWorkState().totalUnknownRework());
+            addMessage("The project reached a release-ready state.");
+        } else if (scenario.isBudgetFailureAllowed()
+                && project.getSpent().compareTo(scenario.getBudget()) > 0) {
+            complete = true;
+            addMessage("The project exceeded its available budget and was closed.");
+            events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM,
+                    "Budget overrun ended the project in Week " + simulatedWeek + ".",
+                    simulatedWeek));
+        } else if (simulatedWeek >= scenario.getDeadlineWeeks()) {
+            complete = true;
+            addMessage("The project missed its deadline with work still unresolved.");
+            events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM,
+                    "Deadline missed in Week " + simulatedWeek + ".",
+                    simulatedWeek));
         }
 
-        project.incrementWeek();
-    }
-
-    public List<WeeklySnapshot> getHistory() {
-        return new ArrayList<>(history);
+        double averageProductivity = team.totalCount() == 0
+                ? 0.0 : productivity.totalEffectiveCapacity() / team.totalCount();
+        history.add(new WeeklySnapshot(
+                simulatedWeek,
+                project.getSpent(),
+                project.getRemainingBudget(),
+                lastWeeklyCost,
+                project.calculatePerceivedProgress(),
+                project.calculateTrueProgress(),
+                team.totalCount(),
+                team.toRoleCounts(),
+                averageProductivity,
+                fatigue,
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().totalUnknownRework(),
+                new ForecastModel().estimateCompletionWeek(
+                        project, developerCapacity() * WORK_UNITS_PER_PRODUCTIVITY),
+                schedulePressure,
+                messages
+        ));
     }
 
     public FinalProjectReport generateFinalReport() {
-        double customerValue = Math.max(0.0, Math.min(1.0, 0.9 - (double) defectsReleased / 100.0 + project.calculateTrueProgress() * 0.2));
-        double defectsRate = Math.max(0.0, defectsReleased / 10.0);
+        double customerValue = clamp(0.9 - defectsReleased / 100.0
+                + project.calculateTrueProgress() * 0.2);
         return new FinalProjectReport(
                 project.getCurrentWeek(),
                 scenario.getDeadlineWeeks(),
@@ -270,41 +276,94 @@ public class SimulationEngine {
     }
 
     public double productivityForUi() {
-        return new ProductivityModel().calculate(team, workIntensity, fatigue, schedulePressure, config).totalEffectiveCapacity();
+        return new ProductivityModel().calculate(team, workIntensity, fatigue,
+                schedulePressure, config).totalEffectiveCapacity();
     }
 
-    private double clamp(double value) {
-        if (Double.isNaN(value) || Double.isInfinite(value)) {
-            return 0.0;
+    private double completeKnownRework(double availableCapacity, double defectRate) {
+        WorkState work = project.getWorkState();
+        double capacity = availableCapacity;
+        double reworkDefectRate = defectRate * config.getQuality().getReworkCreationRate();
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            double known = work.getKnownRework(phase);
+            double attempted = Math.min(known, capacity);
+            if (attempted <= 0.0) {
+                continue;
+            }
+            double completed = attempted * (1.0 - reworkDefectRate);
+            work.addKnownRework(phase, -attempted);
+            work.addKnownRework(phase, attempted - completed);
+            work.addCompletedRework(phase, completed);
+            work.addCompletedWork(phase, completed);
+            capacity -= attempted;
+            if (capacity <= 0.0) {
+                break;
+            }
         }
-        return Math.max(0.0, Math.min(1.0, value));
+        return Math.max(0.0, capacity);
     }
 
-    private double phaseWeight(ProjectPhase phase) {
-        return switch (phase) {
-            case REQUIREMENTS -> 0.10;
-            case DESIGN -> 0.14;
-            case DEVELOPMENT -> 0.48;
-            case TESTING -> 0.20;
-            case DEPLOYMENT -> 0.08;
-        };
+    private void performNewWork(double availableCapacity, double defectRate) {
+        WorkState work = project.getWorkState();
+        double capacity = availableCapacity;
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            double unattempted = Math.max(0.0, work.getTotalWork(phase)
+                    - work.getCompletedWork(phase)
+                    - work.getKnownRework(phase)
+                    - work.getUnknownRework(phase));
+            double attempted = Math.min(unattempted, capacity);
+            if (attempted <= 0.0) {
+                continue;
+            }
+            double defective = attempted * defectRate;
+            work.addCompletedWork(phase, attempted - defective);
+            work.addUnknownRework(phase, defective);
+            capacity -= attempted;
+            if (capacity <= 0.0) {
+                break;
+            }
+        }
     }
 
-    private int onboardingWeeksFor(ExperienceLevel level) {
-        return switch (level) {
-            case JUNIOR -> config.getOnboarding().getJuniorWeeks();
-            case MID_LEVEL -> config.getOnboarding().getMidWeeks();
-            case SENIOR -> config.getOnboarding().getSeniorWeeks();
-        };
+    private void discoverDefects() {
+        double qaCount = team.count(Role.QA_ENGINEER);
+        double discoveryCapacity = qaCount * 50.0
+                * config.getQa().getBaseDetectionRate()
+                * config.getQa().getCapacityMultiplier()
+                * (1.0 - fatigue * 0.5);
+        double remainingDetection = Math.max(0.0, discoveryCapacity);
+        WorkState work = project.getWorkState();
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            double found = Math.min(work.getUnknownRework(phase), remainingDetection);
+            if (found > 0.0) {
+                work.addUnknownRework(phase, -found);
+                work.addKnownRework(phase, found);
+                remainingDetection -= found;
+            }
+            if (remainingDetection <= 0.0) {
+                break;
+            }
+        }
     }
 
-    private ExperienceLevel assignDefaultExperience(Role role) {
-        return switch (role) {
-            case DEVELOPER -> ExperienceLevel.MID_LEVEL;
-            case PROJECT_MANAGER -> ExperienceLevel.SENIOR;
-            case QA_ENGINEER -> ExperienceLevel.MID_LEVEL;
-            case DEVOPS_ENGINEER -> ExperienceLevel.MID_LEVEL;
-        };
+    private double developerCapacity() {
+        return new ProductivityModel().calculate(team, workIntensity, fatigue,
+                schedulePressure, config).developerEffectiveCapacity();
+    }
+
+    private Map<String, Integer> roleCounts() {
+        Map<String, Integer> counts = new HashMap<>();
+        for (Role role : Role.values()) {
+            counts.put(role.name(), team.count(role));
+        }
+        return counts;
+    }
+
+    private void addMessage(String message) {
+        messages.add(message);
+        while (messages.size() > RECENT_MESSAGE_LIMIT) {
+            messages.remove(0);
+        }
     }
 
     private double weeklyRateFor(Role role, ExperienceLevel level) {
@@ -320,27 +379,33 @@ public class SimulationEngine {
         };
     }
 
-    private Role roleFromKey(String key) {
-        String cleaned = key.trim();
-        return switch (cleaned) {
+    private ExperienceLevel assignDefaultExperience(Role role) {
+        return switch (role) {
+            case PROJECT_MANAGER -> ExperienceLevel.SENIOR;
+            case DEVELOPER, QA_ENGINEER, DEVOPS_ENGINEER -> ExperienceLevel.MID_LEVEL;
+        };
+    }
+
+    private static Role roleFromKey(String key) {
+        return switch (key) {
             case "projectManagers" -> Role.PROJECT_MANAGER;
             case "developers" -> Role.DEVELOPER;
             case "qaEngineers" -> Role.QA_ENGINEER;
             case "devOpsEngineers", "devopsEngineers" -> Role.DEVOPS_ENGINEER;
-            default -> Role.DEVELOPER;
+            default -> Role.valueOf(key.toUpperCase());
         };
     }
 
-    private ProjectPhase phaseFromKey(String key) {
-        String cleaned = key.trim();
-        return switch (cleaned) {
-            case "requirements" -> ProjectPhase.REQUIREMENTS;
-            case "design" -> ProjectPhase.DESIGN;
-            case "development" -> ProjectPhase.DEVELOPMENT;
-            case "testing" -> ProjectPhase.TESTING;
-            case "deployment" -> ProjectPhase.DEPLOYMENT;
-            default -> ProjectPhase.DEVELOPMENT;
-        };
+    private static ProjectPhase phaseFromKey(String key) {
+        try {
+            return ProjectPhase.valueOf(key.toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Unknown project phase in scenario: " + key, exception);
+        }
+    }
+
+    private double clamp(double value) {
+        return Math.max(0.0, Math.min(1.0, Double.isFinite(value) ? value : 0.0));
     }
 
     private String scheduleHealthLabel() {
@@ -354,23 +419,25 @@ public class SimulationEngine {
     }
 
     private String budgetHealthLabel() {
-        if (project.getRemainingBudget().doubleValue() / Math.max(1, scenario.getBudget().doubleValue()) > 0.2) {
+        double ratio = project.getRemainingBudget().doubleValue()
+                / Math.max(1.0, scenario.getBudget().doubleValue());
+        if (ratio > 0.2) {
             return "Healthy";
         }
-        if (project.getRemainingBudget().doubleValue() / Math.max(1, scenario.getBudget().doubleValue()) > 0.08) {
+        if (ratio > 0.08) {
             return "At Risk";
         }
         return "Critical";
     }
 
     private String qualityHealthLabel() {
-        if (schedulePressure < 0.35) {
+        if (project.getWorkState().totalKnownRework() == 0.0) {
             return "Healthy";
         }
-        if (schedulePressure < 0.7) {
+        if (project.getWorkState().totalKnownRework() < 100.0) {
             return "Concerning";
         }
-        return "Unknown";
+        return "At Risk";
     }
 
     private String moraleHealthLabel() {

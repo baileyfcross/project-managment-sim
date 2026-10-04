@@ -3,6 +3,7 @@ package edu.simulator.model;
 import java.math.BigDecimal;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class Project {
     private final String id;
@@ -19,10 +20,16 @@ public class Project {
     private final double[] schedulePressureHistory = new double[4];
 
     public Project(String id, String name, int deadlineWeeks, BigDecimal budget) {
-        this.id = id;
-        this.name = name;
+        if (deadlineWeeks < 1) {
+            throw new IllegalArgumentException("Deadline must be at least one week");
+        }
+        this.id = Objects.requireNonNull(id, "id");
+        this.name = Objects.requireNonNull(name, "name");
         this.deadlineWeeks = deadlineWeeks;
-        this.budget = budget;
+        this.budget = Objects.requireNonNull(budget, "budget");
+        if (budget.signum() < 0) {
+            throw new IllegalArgumentException("Budget cannot be negative");
+        }
         this.spent = BigDecimal.ZERO;
         this.currentWeek = 0;
         this.workState = new WorkState();
@@ -53,15 +60,22 @@ public class Project {
     }
 
     public void setSpent(BigDecimal spent) {
-        this.spent = spent;
+        this.spent = Objects.requireNonNull(spent, "spent");
+        if (spent.signum() < 0) {
+            throw new IllegalArgumentException("Spent budget cannot be negative");
+        }
     }
 
     public void addSpent(BigDecimal amount) {
-        this.spent = this.spent.add(amount == null ? BigDecimal.ZERO : amount);
+        Objects.requireNonNull(amount, "amount");
+        if (amount.signum() < 0) {
+            throw new IllegalArgumentException("Spent budget cannot be reduced");
+        }
+        this.spent = this.spent.add(amount);
     }
 
     public BigDecimal getRemainingBudget() {
-        return budget.subtract(spent).max(BigDecimal.ZERO);
+        return budget.subtract(spent);
     }
 
     public int getCurrentWeek() {
@@ -69,6 +83,9 @@ public class Project {
     }
 
     public void setCurrentWeek(int week) {
+        if (week < 0) {
+            throw new IllegalArgumentException("Current week cannot be negative");
+        }
         this.currentWeek = Math.max(0, week);
     }
 
@@ -132,14 +149,14 @@ public class Project {
             if (phaseTotal <= 0.0) {
                 continue;
             }
-            double ratio = (workState.getCompletedWork(phase) + workState.getKnownRework(phase)) / phaseTotal;
+            double ratio = (workState.getCompletedWork(phase) + workState.getUnknownRework(phase)) / phaseTotal;
             complete += Math.min(1.0, ratio) * phaseTotal;
             total += phaseTotal;
         }
         if (total <= 0.0) {
             return 0.0;
         }
-        return complete / total;
+        return SimulationValues.unitInterval(complete / total);
     }
 
     public double calculateTrueProgress() {
@@ -156,14 +173,14 @@ public class Project {
         if (total <= 0.0) {
             return 0.0;
         }
-        return complete / total;
+        return SimulationValues.unitInterval(complete / total);
     }
 
     public void recordSchedulePressure(double pressure) {
         for (int index = schedulePressureHistory.length - 1; index > 0; index--) {
             schedulePressureHistory[index] = schedulePressureHistory[index - 1];
         }
-        schedulePressureHistory[0] = pressure;
+        schedulePressureHistory[0] = SimulationValues.unitInterval(pressure);
     }
 
     public double getAverageSchedulePressure() {
@@ -175,9 +192,6 @@ public class Project {
     }
 
     private double clamp(double value) {
-        if (Double.isNaN(value) || Double.isInfinite(value)) {
-            return 0.0;
-        }
-        return Math.max(0.0, Math.min(1.0, value));
+        return SimulationValues.unitInterval(value);
     }
 }

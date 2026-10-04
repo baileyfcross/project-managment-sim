@@ -1,53 +1,45 @@
 package edu.simulator.ui;
 
+import edu.simulator.simulation.WorkIntensity;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Gameplay-only state. Hidden simulation stocks and true progress deliberately
+ * remain available only to internal snapshots and post-simulation reporting.
+ */
 public class SimulationStateDto {
     private final int week;
+    private final String seed;
     private final int deadline;
     private final BigDecimal budget;
     private final BigDecimal spent;
     private final BigDecimal remainingBudget;
-    private final double burnRate;
-    private final double forecastCost;
+    private final BigDecimal burnRate;
+    private final BigDecimal forecastCost;
     private final int estimatedCompletionWeek;
     private final double perceivedProgress;
-    private final double trueProgress;
-    private final Map<String, Double> phaseProgress;
     private final Map<String, Integer> teamCounts;
     private final String scheduleHealth;
     private final String budgetHealth;
     private final String qualityHealth;
     private final String moraleHealth;
     private final List<String> recentMessages;
-    private final double knownRework;
-    private final double unknownRework;
-    private final double fatigue;
-    private final double morale;
-    private final double schedulePressure;
-    private final double totalRemainingWork;
-    private final double totalKnownRework;
-    private final int projectDeadline;
-    private final BigDecimal projectBudget;
-    private final BigDecimal projectSpent;
-    private final BigDecimal projectRemainingBudget;
-    private final String scenarioName;
-    private final String pendingEvent;
+    private final WorkIntensity workIntensity;
+    private final boolean complete;
 
-    public SimulationStateDto(int week, int deadline, BigDecimal budget, BigDecimal spent,
-                             BigDecimal remainingBudget, double burnRate, double forecastCost,
-                             int estimatedCompletionWeek, double perceivedProgress, double trueProgress,
-                             Map<String, Double> phaseProgress, Map<String, Integer> teamCounts,
-                             String scheduleHealth, String budgetHealth, String qualityHealth,
-                             String moraleHealth, List<String> recentMessages, double knownRework,
-                             double unknownRework, double fatigue, double morale,
-                             double schedulePressure, double totalRemainingWork,
-                             double totalKnownRework, int projectDeadline, BigDecimal projectBudget,
-                             BigDecimal projectSpent, BigDecimal projectRemainingBudget,
-                             String scenarioName, String pendingEvent) {
+    public SimulationStateDto(int week, long seed, int deadline, BigDecimal budget,
+                              BigDecimal spent, BigDecimal remainingBudget,
+                              BigDecimal burnRate, BigDecimal forecastCost,
+                              int estimatedCompletionWeek, double perceivedProgress,
+                              Map<String, Integer> teamCounts, String scheduleHealth,
+                              String budgetHealth, String qualityHealth, String moraleHealth,
+                              List<String> recentMessages, WorkIntensity workIntensity,
+                              boolean complete) {
         this.week = week;
+        this.seed = Long.toString(seed);
         this.deadline = deadline;
         this.budget = budget;
         this.spent = spent;
@@ -56,31 +48,22 @@ public class SimulationStateDto {
         this.forecastCost = forecastCost;
         this.estimatedCompletionWeek = estimatedCompletionWeek;
         this.perceivedProgress = perceivedProgress;
-        this.trueProgress = trueProgress;
-        this.phaseProgress = phaseProgress;
-        this.teamCounts = teamCounts;
+        this.teamCounts = Map.copyOf(teamCounts);
         this.scheduleHealth = scheduleHealth;
         this.budgetHealth = budgetHealth;
         this.qualityHealth = qualityHealth;
         this.moraleHealth = moraleHealth;
-        this.recentMessages = recentMessages;
-        this.knownRework = knownRework;
-        this.unknownRework = unknownRework;
-        this.fatigue = fatigue;
-        this.morale = morale;
-        this.schedulePressure = schedulePressure;
-        this.totalRemainingWork = totalRemainingWork;
-        this.totalKnownRework = totalKnownRework;
-        this.projectDeadline = projectDeadline;
-        this.projectBudget = projectBudget;
-        this.projectSpent = projectSpent;
-        this.projectRemainingBudget = projectRemainingBudget;
-        this.scenarioName = scenarioName;
-        this.pendingEvent = pendingEvent;
+        this.recentMessages = List.copyOf(recentMessages);
+        this.workIntensity = workIntensity;
+        this.complete = complete;
     }
 
     public int getWeek() {
         return week;
+    }
+
+    public String getSeed() {
+        return seed;
     }
 
     public int getDeadline() {
@@ -99,11 +82,11 @@ public class SimulationStateDto {
         return remainingBudget;
     }
 
-    public double getBurnRate() {
+    public BigDecimal getBurnRate() {
         return burnRate;
     }
 
-    public double getForecastCost() {
+    public BigDecimal getForecastCost() {
         return forecastCost;
     }
 
@@ -113,14 +96,6 @@ public class SimulationStateDto {
 
     public double getPerceivedProgress() {
         return perceivedProgress;
-    }
-
-    public double getTrueProgress() {
-        return trueProgress;
-    }
-
-    public Map<String, Double> getPhaseProgress() {
-        return phaseProgress;
     }
 
     public Map<String, Integer> getTeamCounts() {
@@ -147,55 +122,11 @@ public class SimulationStateDto {
         return recentMessages;
     }
 
-    public double getKnownRework() {
-        return knownRework;
+    public WorkIntensity getWorkIntensity() {
+        return workIntensity;
     }
 
-    public double getUnknownRework() {
-        return unknownRework;
-    }
-
-    public double getFatigue() {
-        return fatigue;
-    }
-
-    public double getMorale() {
-        return morale;
-    }
-
-    public double getSchedulePressure() {
-        return schedulePressure;
-    }
-
-    public double getTotalRemainingWork() {
-        return totalRemainingWork;
-    }
-
-    public double getTotalKnownRework() {
-        return totalKnownRework;
-    }
-
-    public int getProjectDeadline() {
-        return projectDeadline;
-    }
-
-    public BigDecimal getProjectBudget() {
-        return projectBudget;
-    }
-
-    public BigDecimal getProjectSpent() {
-        return projectSpent;
-    }
-
-    public BigDecimal getProjectRemainingBudget() {
-        return projectRemainingBudget;
-    }
-
-    public String getScenarioName() {
-        return scenarioName;
-    }
-
-    public String getPendingEvent() {
-        return pendingEvent;
+    public boolean isComplete() {
+        return complete;
     }
 }

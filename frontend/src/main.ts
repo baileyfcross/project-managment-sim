@@ -1,5 +1,19 @@
-type State = {
+type TeamCounts = Record<string, number>;
+
+type SetupState = {
+  scenarioId: string;
+  scenarioName: string;
+  deadlineWeeks: number;
+  budget: number;
+  teamCounts: TeamCounts;
+  weeklyPayroll: number;
+  projectedPayroll: number;
+  contingency: number;
+};
+
+type SimulationState = {
   week: number;
+  seed: string;
   deadline: number;
   budget: number;
   spent: number;
@@ -8,134 +22,200 @@ type State = {
   forecastCost: number;
   estimatedCompletionWeek: number;
   perceivedProgress: number;
-  trueProgress: number;
-  teamCounts: Record<string, number>;
+  teamCounts: TeamCounts;
   scheduleHealth: string;
   budgetHealth: string;
   qualityHealth: string;
   moraleHealth: string;
   recentMessages: string[];
-  scenarioName: string;
-  pendingEvent: string;
+  workIntensity: string;
+  complete: boolean;
 };
 
-const emptyState: State = {
-  week: 0,
-  deadline: 20,
-  budget: 400000,
-  spent: 0,
-  remainingBudget: 400000,
-  burnRate: 0,
-  forecastCost: 0,
-  estimatedCompletionWeek: 0,
-  perceivedProgress: 0,
-  trueProgress: 0,
-  teamCounts: { PROJECT_MANAGER: 0, DEVELOPER: 0, QA_ENGINEER: 0, DEVOPS_ENGINEER: 0 },
-  scheduleHealth: 'Healthy',
-  budgetHealth: 'Healthy',
-  qualityHealth: 'Healthy',
-  moraleHealth: 'Good',
-  recentMessages: ['Project not started.'],
-  scenarioName: 'Small Business Web Application',
-  pendingEvent: 'No event'
+type JavaBridge = {
+  getSetupState(): string;
+  updateInitialTeam(teamJson: string): string;
+  startSimulation(scenarioId: string, seedText: string): string;
+  getSimulationState(): string;
+  advanceWeek(): string;
+  setWorkIntensity(intensity: string): string;
 };
 
-function hydrateState(raw: Partial<State> | null | undefined): State {
-  return { ...emptyState, ...(raw ?? {}) };
+export {};
+
+declare global {
+  interface Window {
+    javaBridge?: JavaBridge;
+  }
 }
+
+const roleRows = Array.from(document.querySelectorAll<HTMLElement>('.team-row'));
+const setupScreen = document.getElementById('setupScreen')!;
+const dashboardScreen = document.getElementById('dashboardScreen')!;
 
 function formatCurrency(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(value);
 }
 
-function percent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+function displayError(id: string, error: unknown): void {
+  const element = document.getElementById(id)!;
+  element.textContent = error instanceof Error ? error.message : String(error);
 }
 
-function updateView(state: State) {
-  const scenarioSummary = document.getElementById('scenarioSummary');
-  scenarioSummary!.textContent = `${state.scenarioName} - Deadline ${state.deadline} weeks`;
+function parseResponse<T>(response: string): T {
+  return JSON.parse(response) as T;
+}
 
-  document.getElementById('weekValue')!.textContent = `Week ${state.week}`;
-  document.getElementById('deadlineValue')!.textContent = `${state.deadline}`;
-  document.getElementById('budgetValue')!.textContent = formatCurrency(state.remainingBudget);
+function renderSetup(state: SetupState): void {
+  document.getElementById('scenarioSummary')!.textContent = state.scenarioName;
+  document.getElementById('setupDeadline')!.textContent = `${state.deadlineWeeks} weeks`;
+  document.getElementById('setupBudget')!.textContent = formatCurrency(state.budget);
+  document.getElementById('weeklyPayroll')!.textContent = formatCurrency(state.weeklyPayroll);
+  document.getElementById('projectedPayroll')!.textContent = formatCurrency(state.projectedPayroll);
+  const contingency = document.getElementById('contingency')!;
+  contingency.textContent = `Contingency after projected payroll: ${formatCurrency(state.contingency)}`;
+  contingency.classList.toggle('cost-warning', state.contingency < 0);
+
+  for (const row of roleRows) {
+    const role = row.dataset.role!;
+    const count = state.teamCounts[role] ?? 0;
+    row.querySelector('.count')!.textContent = String(count);
+    const decrement = row.querySelector<HTMLButtonElement>('[data-change="-1"]')!;
+    const increment = row.querySelector<HTMLButtonElement>('[data-change="1"]')!;
+    decrement.disabled = count <= 0;
+    increment.disabled = count >= 12;
+  }
+}
+
+function renderDashboard(state: SimulationState): void {
+  document.getElementById('weekValue')!.textContent = String(state.week);
+  document.getElementById('deadlineValue')!.textContent = String(state.deadline);
+  document.getElementById('spentValue')!.textContent = formatCurrency(state.spent);
+  document.getElementById('remainingValue')!.textContent = formatCurrency(state.remainingBudget);
   document.getElementById('burnRateValue')!.textContent = formatCurrency(state.burnRate);
-  document.getElementById('forecastValue')!.textContent = `Week ${state.estimatedCompletionWeek}`;
-  document.getElementById('perceivedValue')!.textContent = percent(state.perceivedProgress);
-
+  document.getElementById('forecastCostValue')!.textContent = formatCurrency(state.forecastCost);
+  const progress = Math.max(0, Math.min(1, state.perceivedProgress));
+  document.getElementById('progressValue')!.textContent = `${(progress * 100).toFixed(1)}%`;
+  document.getElementById('progressBar')!.setAttribute('style', `width: ${progress * 100}%`);
+  document.getElementById('forecastValue')!.textContent = state.estimatedCompletionWeek < 0
+    ? 'Unavailable'
+    : `Week ${state.estimatedCompletionWeek}`;
   document.getElementById('scheduleHealth')!.textContent = state.scheduleHealth;
   document.getElementById('budgetHealth')!.textContent = state.budgetHealth;
   document.getElementById('qualityHealth')!.textContent = state.qualityHealth;
   document.getElementById('moraleHealth')!.textContent = state.moraleHealth;
+  document.getElementById('seedValue')!.textContent = `Seed: ${state.seed}`;
 
   document.getElementById('devCount')!.textContent = String(state.teamCounts.DEVELOPER ?? 0);
   document.getElementById('qaCount')!.textContent = String(state.teamCounts.QA_ENGINEER ?? 0);
   document.getElementById('devopsCount')!.textContent = String(state.teamCounts.DEVOPS_ENGINEER ?? 0);
   document.getElementById('pmCount')!.textContent = String(state.teamCounts.PROJECT_MANAGER ?? 0);
 
-  const messagesList = document.getElementById('messagesList')!;
-  messagesList.innerHTML = '';
+  const messages = document.getElementById('messagesList')!;
+  messages.replaceChildren();
   for (const message of state.recentMessages) {
-    const li = document.createElement('li');
-    li.textContent = message;
-    messagesList.appendChild(li);
+    const item = document.createElement('li');
+    item.textContent = message;
+    messages.appendChild(item);
   }
+  (document.getElementById('advanceButton') as HTMLButtonElement).disabled = state.complete;
+  (document.getElementById('workIntensity') as HTMLSelectElement).value = state.workIntensity;
 }
 
-async function requestState(): Promise<State> {
-  const raw = window.javaBridge && typeof window.javaBridge.getSimulationState === 'function'
-    ? window.javaBridge.getSimulationState()
-    : null;
-  if (!raw) {
-    return emptyState;
+function loadSetup(): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('setupError', 'The desktop bridge is not available.');
+    return;
   }
   try {
-    return hydrateState(JSON.parse(raw));
-  } catch {
-    return emptyState;
+    renderSetup(parseResponse<SetupState>(bridge.getSetupState()));
+    document.getElementById('setupError')!.textContent = '';
+  } catch (error) {
+    displayError('setupError', error);
   }
 }
 
-async function startScenario() {
-  if (window.javaBridge && typeof window.javaBridge.startScenario === 'function') {
-    const response = window.javaBridge.startScenario('small-web-app', 42);
-    const state = hydrateState(JSON.parse(response));
-    updateView(state);
+function updateTeam(row: HTMLElement, delta: number): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('setupError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    const setup = parseResponse<SetupState>(bridge.getSetupState());
+    const role = row.dataset.role!;
+    const count = setup.teamCounts[role] ?? 0;
+    const updated = { ...setup.teamCounts, [role]: Math.max(0, Math.min(12, count + delta)) };
+    renderSetup(parseResponse<SetupState>(bridge.updateInitialTeam(JSON.stringify(updated))));
+    document.getElementById('setupError')!.textContent = '';
+  } catch (error) {
+    displayError('setupError', error);
   }
 }
 
-async function advanceWeek() {
-  if (window.javaBridge && typeof window.javaBridge.advanceWeek === 'function') {
-    const response = window.javaBridge.advanceWeek();
-    const state = hydrateState(JSON.parse(response));
-    updateView(state);
+function startProject(): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('setupError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    const scenarioId = parseResponse<SetupState>(bridge.getSetupState()).scenarioId;
+    const seed = (document.getElementById('seedInput') as HTMLInputElement).value.trim();
+    const state = parseResponse<SimulationState>(bridge.startSimulation(scenarioId, seed));
+    setupScreen.hidden = true;
+    dashboardScreen.hidden = false;
+    document.getElementById('dashboardError')!.textContent = '';
+    renderDashboard(state);
+  } catch (error) {
+    displayError('setupError', error);
   }
 }
 
-function attachEvents() {
-  document.getElementById('startButton')!.addEventListener('click', startScenario);
-  document.getElementById('advanceButton')!.addEventListener('click', advanceWeek);
-  const intensitySelect = document.getElementById('workIntensity') as HTMLSelectElement;
-  intensitySelect.addEventListener('change', () => {
-    if (window.javaBridge && typeof window.javaBridge.setWorkIntensity === 'function') {
-      window.javaBridge.setWorkIntensity(intensitySelect.value);
-    }
-  });
-}
-
-declare global {
-  interface Window {
-    javaBridge?: {
-      getSimulationState?: () => string;
-      startScenario?: (scenarioId: string, seed: number) => string;
-      advanceWeek?: () => string;
-      setWorkIntensity?: (intensity: string) => string;
-    };
+function advanceWeek(): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('dashboardError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    renderDashboard(parseResponse<SimulationState>(bridge.advanceWeek()));
+    document.getElementById('dashboardError')!.textContent = '';
+  } catch (error) {
+    displayError('dashboardError', error);
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  attachEvents();
-  updateView(emptyState);
-  void requestState().then(updateView);
+function updateWorkIntensity(value: string): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('dashboardError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    renderDashboard(parseResponse<SimulationState>(bridge.setWorkIntensity(value)));
+    document.getElementById('dashboardError')!.textContent = '';
+  } catch (error) {
+    displayError('dashboardError', error);
+  }
+}
+
+document.getElementById('startButton')!.addEventListener('click', startProject);
+document.getElementById('advanceButton')!.addEventListener('click', advanceWeek);
+document.getElementById('workIntensity')!.addEventListener('change', (event) => {
+  updateWorkIntensity((event.currentTarget as HTMLSelectElement).value);
 });
+
+for (const row of roleRows) {
+  for (const button of row.querySelectorAll<HTMLButtonElement>('[data-change]')) {
+    button.addEventListener('click', () => updateTeam(row, Number(button.dataset.change)));
+  }
+}
+
+window.addEventListener('javaBridgeReady', loadSetup);
+window.addEventListener('DOMContentLoaded', loadSetup);

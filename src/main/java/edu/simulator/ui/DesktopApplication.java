@@ -13,7 +13,7 @@ import java.net.URL;
 
 public class DesktopApplication extends Application {
     @Override
-    public void start(Stage stage) throws Exception {
+    public void start(Stage stage) {
         JavaBridge bridge = new JavaBridge();
         WebView webView = new WebView();
         WebEngine webEngine = webView.getEngine();
@@ -22,6 +22,7 @@ public class DesktopApplication extends Application {
             if (newValue == Worker.State.SUCCEEDED) {
                 JSObject window = (JSObject) webEngine.executeScript("window");
                 window.setMember("javaBridge", bridge);
+                webEngine.executeScript("window.dispatchEvent(new Event('javaBridgeReady'))");
             }
         });
 
@@ -43,7 +44,4 @@ public class DesktopApplication extends Application {
         stage.show();
     }
 
-    public static void main(String[] args) {
-        launch(args);
-    }
 }

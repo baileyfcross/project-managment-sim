@@ -28,16 +28,24 @@ dependencies {
     implementation "org.openjfx:javafx-graphics:${javafxVersion}:${platform}"
     implementation "org.openjfx:javafx-controls:${javafxVersion}:${platform}"
     implementation "org.openjfx:javafx-web:${javafxVersion}:${platform}"
-
+    implementation "org.openjfx:javafx-media:${javafxVersion}:${platform}"
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2'
 
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 application {
-    mainClass = 'edu.simulator.ui.DesktopApplication'
+    mainClass = 'edu.simulator.App'
+}
+
+def javafxRuntimeModules = configurations.runtimeClasspath.filter { it.name.startsWith('javafx-') }
+tasks.named('run', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath - javafxRuntimeModules
+    jvmArgs '--module-path', javafxRuntimeModules.asPath,
+            '--add-modules', 'javafx.controls,javafx.web,javafx.media'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -48,21 +56,26 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+def isWindows = System.getProperty('os.name').toLowerCase().contains('win')
+def npmCommand = isWindows ? ['cmd', '/c', 'npm.cmd'] : ['npm']
+
 tasks.register('installFrontend', Exec) {
     workingDir = file('frontend')
-    commandLine = ['cmd', '/c', 'npm install']
+    inputs.files('frontend/package.json', 'frontend/package-lock.json')
+    outputs.file(file('frontend/node_modules/.package-lock.json'))
+    commandLine = npmCommand + ['ci']
 }
 
 tasks.register('buildFrontend', Exec) {
     dependsOn 'installFrontend'
     workingDir = file('frontend')
-    commandLine = ['cmd', '/c', 'npm run build']
+    inputs.files(fileTree('frontend') {
+        exclude 'node_modules/**'
+    })
+    outputs.dir(file('src/main/resources/web'))
+    commandLine = npmCommand + ['run', 'build']
 }
 
 processResources {
-    dependsOn 'buildFrontend'
-}
-
-compileJava {
     dependsOn 'buildFrontend'
 }

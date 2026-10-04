@@ -77,6 +77,44 @@ public class SimulationConfiguration {
         this.turnover = turnover;
     }
 
+    public void validate() {
+        if (productivity == null || quality == null || qa == null || fatigue == null
+                || onboarding == null || costs == null || schedule == null || turnover == null) {
+            throw new IllegalArgumentException("Simulation configuration sections cannot be null");
+        }
+        validateNonNegative(
+                productivity.junior, productivity.mid, productivity.senior,
+                productivity.baseTeamSizePenalty, productivity.coordinationMaxPenalty,
+                quality.baseDefectRate, quality.defectCap, quality.reworkCreationRate,
+                qa.baseDetectionRate, qa.capacityMultiplier, fatigue.recoveryRate,
+                fatigue.increasedWorkRate, fatigue.crunchRate, fatigue.maxValue,
+                fatigue.burnoutThreshold, onboarding.mentoringCapacity,
+                costs.juniorDeveloperWeekly, costs.midDeveloperWeekly, costs.seniorDeveloperWeekly,
+                costs.qaWeekly, costs.devopsWeekly, costs.projectManagerWeekly,
+                costs.overtimePremiumRate, schedule.pressureWeight,
+                schedule.deadlineUrgencyWeight, schedule.targetScheduleHealth,
+                turnover.baseRate, turnover.fatigueWeight, turnover.pressureWeight,
+                turnover.moraleWeight, turnover.maxRate
+        );
+        if (quality.baseDefectRate > 1 || quality.defectCap > 1 || qa.baseDetectionRate > 1
+                || fatigue.maxValue > 1 || fatigue.burnoutThreshold > 1
+                || productivity.coordinationMaxPenalty > 1 || turnover.maxRate > 1) {
+            throw new IllegalArgumentException("Probability and normalized configuration values must not exceed 1");
+        }
+        if (onboarding.juniorWeeks < 1 || onboarding.midWeeks < 1 || onboarding.seniorWeeks < 1
+                || costs.hiringDelayWeeks < 0) {
+            throw new IllegalArgumentException("Onboarding durations must be positive and hiring delay non-negative");
+        }
+    }
+
+    private void validateNonNegative(double... values) {
+        for (double value : values) {
+            if (!Double.isFinite(value) || value < 0.0) {
+                throw new IllegalArgumentException("Simulation configuration values must be finite and non-negative");
+            }
+        }
+    }
+
     public static class Productivity {
         private double junior = 0.55;
         private double mid = 1.0;

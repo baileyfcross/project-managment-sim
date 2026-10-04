@@ -22,6 +22,9 @@ public class Team {
     }
 
     public void addEmployees(Role role, int count, EmployeeFactory factory) {
+        if (count < 0) {
+            throw new IllegalArgumentException("Employee count cannot be negative");
+        }
         for (int index = 0; index < count; index++) {
             addEmployee(factory.create(role));
         }

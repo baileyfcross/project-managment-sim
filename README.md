@@ -1,10 +1,10 @@
 # Software Project Management Simulator
 
-The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The simulator models staffing, onboarding, fatigue, defects, rework, budget pressure, scope change, and delayed consequences of management decisions.
+The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. Its Phase 1 foundation supports team composition, weekly project work, payroll, fatigue, QA, defects, rework, budget pressure, and repeatable seeded scenarios. Additional management systems are planned for later phases.
 
 ## Purpose
 
-This project is designed for classroom use in software engineering courses. Students make decisions that affect schedule, quality, morale, and cost, while the underlying simulation exposes how short-term tradeoffs create delayed project consequences.
+This project is designed for classroom use in software engineering courses. Students make initial staffing and weekly work-intensity decisions that affect schedule, quality, morale, and cost, while the underlying simulation exposes how short-term tradeoffs create delayed project consequences.
 
 ## Architecture
 
@@ -39,24 +39,30 @@ The project uses a layered design:
 
 - Java 21 or newer
 - Node.js and npm for frontend build steps
-- Gradle wrapper or installed Gradle 8+
+- Gradle wrapper (Gradle 8.10.2)
 
-## Run
+Set `JAVA_HOME` to a Java 21 or newer JDK before building. The Gradle Java toolchain requires Java 21; Java 8 is not supported.
 
-```bash
-./gradlew run
+## Run on Windows
+
+In PowerShell, ensure `JAVA_HOME` points to the installed JDK, then run:
+
+```powershell
+.\gradlew.bat run
 ```
 
-## Test
+The same Gradle application run task is available on other platforms with `./gradlew run`. Gradle builds the TypeScript frontend into local Java resources before launching JavaFX. The packaged desktop runtime does not require Node.js or internet access.
 
-```bash
-./gradlew test
+## Test on Windows
+
+```powershell
+.\gradlew.bat clean test
 ```
 
-## Build
+## Build on Windows
 
-```bash
-./gradlew build
+```powershell
+.\gradlew.bat clean build
 ```
 
 ## Scenario Model
@@ -69,7 +75,17 @@ Simulation tuning values live in JSON configuration files in src/main/resources/
 
 ## Simulation Highlights
 
-The engine tracks both perceived progress and true progress. Users normally see perceived progress, while the engine privately tracks unknown rework and defects. This allows the project to appear healthy while hidden problems accumulate.
+The engine tracks perceived progress separately from internal true progress and unknown rework. Gameplay receives only the perceived estimate and known project information; internal stocks remain in Java and snapshots and are not included in the normal gameplay JSON DTO.
+
+## Week and seed behavior
+
+The project starts at Week 0, before any work. Each press of **Advance 1 Week** simulates the next week, stores an end-of-week snapshot, and leaves the project at that week. After N advances, the current week and history length are both N.
+
+Leave the seed field blank to have Java generate and display a seed, or enter a signed 64-bit integer to reproduce a run. All stochastic simulation decisions use the seeded generator. Repeating a scenario with the same seed, team, and decisions reproduces the same weekly results.
+
+## Frontend/backend boundary
+
+Java is authoritative for setup, team counts, project state, cost calculations, and simulation outcomes. TypeScript renders DTOs and sends requested actions through the narrow JSON-based Java bridge; it does not maintain an independent simulation state.
 
 ## Adding a Scenario
 

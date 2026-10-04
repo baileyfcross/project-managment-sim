@@ -1,16 +1,17 @@
 package edu.simulator.event;
 
-import java.time.LocalDateTime;
-
 public class ProjectEvent {
     private final EventType type;
     private final String summary;
-    private final LocalDateTime createdAt;
+    private final int week;
 
-    public ProjectEvent(EventType type, String summary) {
+    public ProjectEvent(EventType type, String summary, int week) {
         this.type = type;
         this.summary = summary;
-        this.createdAt = LocalDateTime.now();
+        if (week < 1) {
+            throw new IllegalArgumentException("An event must occur during a simulated week");
+        }
+        this.week = week;
     }
 
     public EventType getType() {
@@ -21,7 +22,7 @@ public class ProjectEvent {
         return summary;
     }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
+    public int getWeek() {
+        return week;
     }
 }

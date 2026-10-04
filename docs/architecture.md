@@ -8,15 +8,15 @@ The Java backend contains the domain model, configuration, scenarios, simulation
 
 ## Frontend
 
-The frontend is a Vite-based TypeScript application rendered inside JavaFX WebView. It provides screens for scenario selection, team building, the main dashboard, and history display. The UI remains focused on presenting model state and sending decisions to the Java bridge.
+The frontend is a Vite-based TypeScript application rendered inside JavaFX WebView. In Phase 1 it provides the default-scenario team builder and active-project dashboard. The UI remains focused on presenting model state and sending decisions to the Java bridge.
 
 ## Java and JavaScript Bridge
 
-The JavaBridge object exposes a narrow API to the frontend. It serializes simulation state into JSON and accepts actions such as starting a scenario, changing team composition, setting work intensity, and advancing the week. The frontend does not manipulate hidden simulation variables directly.
+The JavaBridge exposes only JSON-based setup and gameplay operations: read setup values, update the initial team, start with a selected seed, change work intensity, and advance a week. It does not expose domain objects or simulation history to normal gameplay. Java owns all authoritative state and calculations; TypeScript renders the returned DTOs.
 
 ## Gradle and Vite
 
-Gradle is responsible for coordinating the build. It triggers npm install, executes the Vite production build, and compiles the Java application. The generated frontend is copied into Java resources for embedding.
+Gradle is responsible for coordinating the build. It runs reproducible `npm ci` only when package inputs require it, executes the Vite production build when frontend inputs change, and includes the generated frontend in Java resources for embedding.
 
 ## Simulation Layers
 
@@ -32,3 +32,4 @@ Gradle is responsible for coordinating the build. It triggers npm install, execu
 - Keep business rules in dedicated services and models
 - Use deterministic seeded randomness for reproducibility
 - Make configuration external to code
+- Keep hidden simulation state out of gameplay DTOs

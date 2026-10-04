@@ -18,7 +18,7 @@ public class Employee {
         this.id = UUID.randomUUID().toString();
         this.role = Objects.requireNonNull(role, "role");
         this.experienceLevel = Objects.requireNonNull(experienceLevel, "experienceLevel");
-        this.baseWeeklyCost = baseWeeklyCost;
+        setBaseWeeklyCost(baseWeeklyCost);
         this.active = true;
         this.fatigue = 0.0;
         this.morale = 0.7;
@@ -69,6 +69,9 @@ public class Employee {
     }
 
     public void setBaseWeeklyCost(double baseWeeklyCost) {
+        if (!Double.isFinite(baseWeeklyCost) || baseWeeklyCost < 0.0) {
+            throw new IllegalArgumentException("Employee weekly cost must be finite and non-negative");
+        }
         this.baseWeeklyCost = baseWeeklyCost;
     }
 

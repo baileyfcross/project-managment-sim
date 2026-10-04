@@ -21,7 +21,7 @@ public class WorkState {
     }
 
     public void setTotalWork(ProjectPhase phase, double value) {
-        totalWork.put(phase, Math.max(0.0, value));
+        totalWork.put(phase, SimulationValues.nonNegativeFinite(value));
     }
 
     public double getTotalWork(ProjectPhase phase) {
@@ -45,39 +45,59 @@ public class WorkState {
     }
 
     public void addCompletedWork(ProjectPhase phase, double amount) {
-        double next = completedWork.getOrDefault(phase, 0.0) + amount;
-        completedWork.put(phase, Math.max(0.0, next));
+        adjust(completedWork, phase, amount);
     }
 
     public void addKnownRework(ProjectPhase phase, double amount) {
-        double next = knownRework.getOrDefault(phase, 0.0) + amount;
-        knownRework.put(phase, Math.max(0.0, next));
+        adjust(knownRework, phase, amount);
     }
 
     public void addUnknownRework(ProjectPhase phase, double amount) {
-        double next = unknownRework.getOrDefault(phase, 0.0) + amount;
-        unknownRework.put(phase, Math.max(0.0, next));
+        adjust(unknownRework, phase, amount);
     }
 
     public void addCompletedRework(ProjectPhase phase, double amount) {
-        double next = completedRework.getOrDefault(phase, 0.0) + amount;
-        completedRework.put(phase, Math.max(0.0, next));
+        adjust(completedRework, phase, amount);
     }
 
     public double totalRemainingWork() {
         double total = 0.0;
         for (ProjectPhase phase : ProjectPhase.values()) {
-            total += Math.max(0.0, totalWork.getOrDefault(phase, 0.0) - completedWork.getOrDefault(phase, 0.0));
-            total += Math.max(0.0, knownRework.getOrDefault(phase, 0.0));
+            total = safeAdd(total, Math.max(0.0,
+                    totalWork.getOrDefault(phase, 0.0) - completedWork.getOrDefault(phase, 0.0)));
+            total = safeAdd(total, knownRework.getOrDefault(phase, 0.0));
         }
         return total;
+    }
+
+    public double perceivedRemainingWork() {
+        double total = 0.0;
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            total = safeAdd(total, Math.max(0.0, totalWork.getOrDefault(phase, 0.0)
+                    - completedWork.getOrDefault(phase, 0.0)
+                    - unknownRework.getOrDefault(phase, 0.0)));
+            total = safeAdd(total, knownRework.getOrDefault(phase, 0.0));
+        }
+        return total;
+    }
+
+    public boolean isReleaseReady() {
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            double perceivedCompleted = completedWork.getOrDefault(phase, 0.0)
+                    + unknownRework.getOrDefault(phase, 0.0);
+            if (perceivedCompleted < totalWork.getOrDefault(phase, 0.0)
+                    || knownRework.getOrDefault(phase, 0.0) > 0.0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public double totalCompletedWork() {
         double total = 0.0;
         for (ProjectPhase phase : ProjectPhase.values()) {
-            total += completedWork.getOrDefault(phase, 0.0);
-            total += completedRework.getOrDefault(phase, 0.0);
+            total = safeAdd(total, completedWork.getOrDefault(phase, 0.0));
+            total = safeAdd(total, completedRework.getOrDefault(phase, 0.0));
         }
         return total;
     }
@@ -85,7 +105,7 @@ public class WorkState {
     public double totalUnknownRework() {
         double total = 0.0;
         for (ProjectPhase phase : ProjectPhase.values()) {
-            total += unknownRework.getOrDefault(phase, 0.0);
+            total = safeAdd(total, unknownRework.getOrDefault(phase, 0.0));
         }
         return total;
     }
@@ -93,8 +113,25 @@ public class WorkState {
     public double totalKnownRework() {
         double total = 0.0;
         for (ProjectPhase phase : ProjectPhase.values()) {
-            total += knownRework.getOrDefault(phase, 0.0);
+            total = safeAdd(total, knownRework.getOrDefault(phase, 0.0));
         }
         return total;
+    }
+
+    private void adjust(Map<ProjectPhase, Double> stock, ProjectPhase phase, double amount) {
+        if (!Double.isFinite(amount)) {
+            return;
+        }
+        double current = stock.getOrDefault(phase, 0.0);
+        double next = amount > 0.0 && current > Double.MAX_VALUE - amount
+                ? Double.MAX_VALUE : current + amount;
+        stock.put(phase, Math.max(0.0, next));
+    }
+
+    private double safeAdd(double left, double right) {
+        if (right > 0.0 && left > Double.MAX_VALUE - right) {
+            return Double.MAX_VALUE;
+        }
+        return left + right;
     }
 }

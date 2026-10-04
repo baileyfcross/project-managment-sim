@@ -15,7 +15,9 @@ public final class ConfigurationLoader {
             if (inputStream == null) {
                 throw new IllegalStateException("Missing default configuration at /configuration/simulation-defaults.json");
             }
-            return OBJECT_MAPPER.readValue(inputStream, SimulationConfiguration.class);
+            SimulationConfiguration configuration = OBJECT_MAPPER.readValue(inputStream, SimulationConfiguration.class);
+            configuration.validate();
+            return configuration;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load simulation defaults", e);
         }
