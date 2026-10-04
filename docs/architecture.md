@@ -20,8 +20,12 @@ Gradle is responsible for coordinating the build. It runs reproducible `npm ci` 
 
 ## Simulation Layers
 
-- Domain: project, employee, pending hire, onboarding state, budget, work state, health, snapshots
-- Simulation: experience-based productivity and cost, hiring delays, mentoring, onboarding, defects, fatigue, coordination, schedule pressure, forecast
+- Domain: project, employee, pending hire, onboarding state, budget, per-phase work stocks, testing priority, health, snapshots
+- Simulation: experience-based productivity and cost, hiring delays, mentoring, onboarding, phase readiness, work allocation, defect generation and discovery, rework, QA backlog, fatigue, coordination, schedule pressure, forecast
+
+Focused work models own their formulas: `WorkAllocationModel` divides developer capacity, `PhaseReadinessModel` provides gradual phase availability, `NewWorkModel` attempts new developer and DevOps work, `DefectModel` bounds and samples defective work, `ReworkModel` repairs known defects, `TestingModel` processes the bounded testable queue and discovers defects, and `QualityHealthModel` derives visible quality status. `SimulationEngine` orders these models and records snapshots.
+
+`WorkState` is the authoritative per-phase work ledger. It distinguishes scenario base scope and remaining work from correct completion, unknown and known rework, test backlog, and weekly flow metrics. `WeeklySnapshot` retains both manager-visible and hidden metrics; `SimulationStateDto` includes only perceived phase progress, known rework, current discoveries, testing status and priority, and QA capacity. Neither the gameplay DTO nor the forecast exposes true progress or unknown rework.
 - Events: project events and scope changes
 - Reporting: final results and post-simulation analysis
 

@@ -9,11 +9,18 @@
   "quality": {
     "baseDefectRate": 0.08,
     "defectCap": 0.42,
-    "reworkCreationRate": 0.18
+    "reworkCreationRate": 0.18,
+    "juniorDefectMultiplier": 1.35,
+    "midDefectMultiplier": 1.0,
+    "seniorDefectMultiplier": 0.75,
+    "reworkDefectMultiplier": 0.65,
+    "propagationFactor": 0.2,
+    "regressionTestingFactor": 0.25
   },
   "qa": {
     "baseDetectionRate": 0.18,
-    "capacityMultiplier": 1.0
+    "capacityMultiplier": 1.0,
+    "throughputPerCapacity": 180.0
   },
   "fatigue": {
     "recoveryRate": 0.08,
@@ -63,6 +70,25 @@
     "onboardingDemand": 0.35,
     "minimumProgressFactor": 0.25,
     "maximumDirectProductivityLoss": 0.25
+  },
+  "workAllocation": {
+    "knownReworkCapacityShare": 0.35
+  },
+  "phaseReadiness": {
+    "minimumOverlap": 0.1
+  },
+  "testing": {
+    "lowCapacityFactor": 0.65,
+    "normalCapacityFactor": 1.0,
+    "highCapacityFactor": 1.3,
+    "lowDiscoveryFactor": 0.65,
+    "normalDiscoveryFactor": 1.0,
+    "highDiscoveryFactor": 1.25,
+    "moderateBacklogThreshold": 250.0,
+    "highBacklogThreshold": 650.0,
+    "criticalBacklogThreshold": 1200.0,
+    "concerningKnownRework": 30.0,
+    "atRiskKnownRework": 100.0
   },
   "coordination": {
     "pairScale": 0.011,

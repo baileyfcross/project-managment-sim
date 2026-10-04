@@ -10,6 +10,9 @@ public class SimulationConfiguration {
     private Fatigue fatigue = new Fatigue();
     private Onboarding onboarding = new Onboarding();
     private Costs costs = new Costs();
+    private WorkAllocation workAllocation = new WorkAllocation();
+    private PhaseReadiness phaseReadiness = new PhaseReadiness();
+    private Testing testing = new Testing();
     private InitialTeamExperience initialTeamExperience = new InitialTeamExperience();
     private Mentoring mentoring = new Mentoring();
     private Coordination coordination = new Coordination();
@@ -64,6 +67,13 @@ public class SimulationConfiguration {
         this.costs = costs;
     }
 
+    public WorkAllocation getWorkAllocation() { return workAllocation; }
+    public void setWorkAllocation(WorkAllocation value) { workAllocation = value; }
+    public PhaseReadiness getPhaseReadiness() { return phaseReadiness; }
+    public void setPhaseReadiness(PhaseReadiness value) { phaseReadiness = value; }
+    public Testing getTesting() { return testing; }
+    public void setTesting(Testing value) { testing = value; }
+
     public InitialTeamExperience getInitialTeamExperience() {
         return initialTeamExperience;
     }
@@ -106,7 +116,8 @@ public class SimulationConfiguration {
 
     public void validate() {
         if (productivity == null || quality == null || qa == null || fatigue == null
-                || onboarding == null || costs == null || initialTeamExperience == null || mentoring == null
+                || onboarding == null || costs == null || initialTeamExperience == null
+                || workAllocation == null || phaseReadiness == null || testing == null || mentoring == null
                 || coordination == null || schedule == null || turnover == null) {
             throw new IllegalArgumentException("Simulation configuration sections cannot be null");
         }
@@ -127,6 +138,16 @@ public class SimulationConfiguration {
                 mentoring.minimumProgressFactor, mentoring.maximumDirectProductivityLoss,
                 coordination.pairScale, coordination.projectManagerReduction,
                 coordination.seniorReduction, coordination.maximumPenalty,
+                quality.juniorDefectMultiplier, quality.midDefectMultiplier,
+                quality.seniorDefectMultiplier, quality.reworkDefectMultiplier,
+                quality.propagationFactor, quality.regressionTestingFactor,
+                qa.throughputPerCapacity, workAllocation.knownReworkCapacityShare,
+                phaseReadiness.minimumOverlap, testing.lowCapacityFactor,
+                testing.normalCapacityFactor, testing.highCapacityFactor,
+                testing.lowDiscoveryFactor, testing.normalDiscoveryFactor,
+                testing.highDiscoveryFactor, testing.moderateBacklogThreshold,
+                testing.highBacklogThreshold, testing.criticalBacklogThreshold,
+                testing.concerningKnownRework, testing.atRiskKnownRework,
                 costs.juniorQaWeekly, costs.midQaWeekly, costs.seniorQaWeekly,
                 costs.juniorDevopsWeekly, costs.midDevopsWeekly, costs.seniorDevopsWeekly,
                 costs.juniorProjectManagerWeekly, costs.midProjectManagerWeekly,
@@ -148,6 +169,20 @@ public class SimulationConfiguration {
                 || coordination.projectManagerReduction > 1 || coordination.seniorReduction > 1
                 || coordination.maximumPenalty > 1) {
             throw new IllegalArgumentException("Probability and normalized configuration values must not exceed 1");
+        }
+        if (quality.baseDefectRate > 1 || quality.defectCap > 1
+                || quality.juniorDefectMultiplier > 5 || quality.midDefectMultiplier > 5
+                || quality.seniorDefectMultiplier > 5 || quality.reworkDefectMultiplier > 5
+                || quality.propagationFactor > 5 || quality.regressionTestingFactor > 1
+                || qa.baseDetectionRate > 1 || testing.lowCapacityFactor > 2
+                || testing.normalCapacityFactor > 2 || testing.highCapacityFactor > 2
+                || testing.lowDiscoveryFactor > 2 || testing.normalDiscoveryFactor > 2
+                || testing.highDiscoveryFactor > 2 || workAllocation.knownReworkCapacityShare > 1
+                || phaseReadiness.minimumOverlap > 1
+                || testing.moderateBacklogThreshold > testing.highBacklogThreshold
+                || testing.highBacklogThreshold > testing.criticalBacklogThreshold
+                || testing.concerningKnownRework > testing.atRiskKnownRework) {
+            throw new IllegalArgumentException("Quality and testing configuration values are out of range");
         }
         if (onboarding.juniorWeeks < 1 || onboarding.midWeeks < 1 || onboarding.seniorWeeks < 1
                 || costs.hiringDelayWeeks < 0 || costs.juniorHiringDelayWeeks < 0
@@ -216,6 +251,12 @@ public class SimulationConfiguration {
         private double baseDefectRate = 0.08;
         private double defectCap = 0.42;
         private double reworkCreationRate = 0.18;
+        private double juniorDefectMultiplier = 1.35;
+        private double midDefectMultiplier = 1.0;
+        private double seniorDefectMultiplier = 0.75;
+        private double reworkDefectMultiplier = 0.65;
+        private double propagationFactor = 0.2;
+        private double regressionTestingFactor = 0.25;
 
         public double getBaseDefectRate() {
             return baseDefectRate;
@@ -240,11 +281,24 @@ public class SimulationConfiguration {
         public void setReworkCreationRate(double reworkCreationRate) {
             this.reworkCreationRate = reworkCreationRate;
         }
+        public double getJuniorDefectMultiplier() { return juniorDefectMultiplier; }
+        public void setJuniorDefectMultiplier(double value) { juniorDefectMultiplier = value; }
+        public double getMidDefectMultiplier() { return midDefectMultiplier; }
+        public void setMidDefectMultiplier(double value) { midDefectMultiplier = value; }
+        public double getSeniorDefectMultiplier() { return seniorDefectMultiplier; }
+        public void setSeniorDefectMultiplier(double value) { seniorDefectMultiplier = value; }
+        public double getReworkDefectMultiplier() { return reworkDefectMultiplier; }
+        public void setReworkDefectMultiplier(double value) { reworkDefectMultiplier = value; }
+        public double getPropagationFactor() { return propagationFactor; }
+        public void setPropagationFactor(double value) { propagationFactor = value; }
+        public double getRegressionTestingFactor() { return regressionTestingFactor; }
+        public void setRegressionTestingFactor(double value) { regressionTestingFactor = value; }
     }
 
     public static class Qa {
         private double baseDetectionRate = 0.18;
         private double capacityMultiplier = 1.0;
+        private double throughputPerCapacity = 180.0;
 
         public double getBaseDetectionRate() {
             return baseDetectionRate;
@@ -261,6 +315,8 @@ public class SimulationConfiguration {
         public void setCapacityMultiplier(double capacityMultiplier) {
             this.capacityMultiplier = capacityMultiplier;
         }
+        public double getThroughputPerCapacity() { return throughputPerCapacity; }
+        public void setThroughputPerCapacity(double value) { throughputPerCapacity = value; }
     }
 
     public static class Fatigue {
@@ -395,6 +451,69 @@ public class SimulationConfiguration {
         public void setSeniorReduction(double value) { seniorReduction = value; }
         public double getMaximumPenalty() { return maximumPenalty; }
         public void setMaximumPenalty(double value) { maximumPenalty = value; }
+    }
+
+    public static class WorkAllocation {
+        private double knownReworkCapacityShare = 0.35;
+        public double getKnownReworkCapacityShare() { return knownReworkCapacityShare; }
+        public void setKnownReworkCapacityShare(double value) { knownReworkCapacityShare = value; }
+    }
+
+    public static class PhaseReadiness {
+        private double minimumOverlap = 0.1;
+        public double getMinimumOverlap() { return minimumOverlap; }
+        public void setMinimumOverlap(double value) { minimumOverlap = value; }
+    }
+
+    public static class Testing {
+        private double lowCapacityFactor = 0.65;
+        private double normalCapacityFactor = 1.0;
+        private double highCapacityFactor = 1.3;
+        private double lowDiscoveryFactor = 0.65;
+        private double normalDiscoveryFactor = 1.0;
+        private double highDiscoveryFactor = 1.25;
+        private double moderateBacklogThreshold = 250.0;
+        private double highBacklogThreshold = 650.0;
+        private double criticalBacklogThreshold = 1200.0;
+        private double concerningKnownRework = 30.0;
+        private double atRiskKnownRework = 100.0;
+
+        public double capacityFactor(edu.simulator.model.TestingPriority priority) {
+            return switch (priority) {
+                case LOW -> lowCapacityFactor;
+                case NORMAL -> normalCapacityFactor;
+                case HIGH -> highCapacityFactor;
+            };
+        }
+        public double discoveryFactor(edu.simulator.model.TestingPriority priority) {
+            return switch (priority) {
+                case LOW -> lowDiscoveryFactor;
+                case NORMAL -> normalDiscoveryFactor;
+                case HIGH -> highDiscoveryFactor;
+            };
+        }
+        public double getLowCapacityFactor() { return lowCapacityFactor; }
+        public void setLowCapacityFactor(double value) { lowCapacityFactor = value; }
+        public double getNormalCapacityFactor() { return normalCapacityFactor; }
+        public void setNormalCapacityFactor(double value) { normalCapacityFactor = value; }
+        public double getHighCapacityFactor() { return highCapacityFactor; }
+        public void setHighCapacityFactor(double value) { highCapacityFactor = value; }
+        public double getLowDiscoveryFactor() { return lowDiscoveryFactor; }
+        public void setLowDiscoveryFactor(double value) { lowDiscoveryFactor = value; }
+        public double getNormalDiscoveryFactor() { return normalDiscoveryFactor; }
+        public void setNormalDiscoveryFactor(double value) { normalDiscoveryFactor = value; }
+        public double getHighDiscoveryFactor() { return highDiscoveryFactor; }
+        public void setHighDiscoveryFactor(double value) { highDiscoveryFactor = value; }
+        public double getModerateBacklogThreshold() { return moderateBacklogThreshold; }
+        public void setModerateBacklogThreshold(double value) { moderateBacklogThreshold = value; }
+        public double getHighBacklogThreshold() { return highBacklogThreshold; }
+        public void setHighBacklogThreshold(double value) { highBacklogThreshold = value; }
+        public double getCriticalBacklogThreshold() { return criticalBacklogThreshold; }
+        public void setCriticalBacklogThreshold(double value) { criticalBacklogThreshold = value; }
+        public double getConcerningKnownRework() { return concerningKnownRework; }
+        public void setConcerningKnownRework(double value) { concerningKnownRework = value; }
+        public double getAtRiskKnownRework() { return atRiskKnownRework; }
+        public void setAtRiskKnownRework(double value) { atRiskKnownRework = value; }
     }
 
     public static class InitialTeamExperience {

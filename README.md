@@ -1,6 +1,6 @@
 # Software Project Management Simulator
 
-The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 2 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, weekly project work, QA, defects, rework, budget pressure, and repeatable seeded scenarios.
+The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 3 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, budget pressure, and repeatable seeded scenarios.
 
 ## Purpose
 
@@ -71,11 +71,21 @@ Scenarios are loaded from JSON in src/main/resources/scenarios. Each scenario de
 
 ## Configuration Model
 
-Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, productivity, fatigue, overtime, and quality parameters.
+Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, developer rework allocation, phase overlap, quality and defect modifiers, QA throughput and testing priority, regression testing, productivity, fatigue, and overtime parameters.
 
 ## Simulation Highlights
 
-The engine tracks perceived progress separately from internal true progress and unknown rework. Gameplay receives only the perceived estimate and known project information; internal stocks remain in Java and snapshots and are not included in the normal gameplay JSON DTO. The in-project Manage Team panel shows active staff by role and experience, onboarding states, pending hires, salary and hiring-cost previews, payroll and cost forecasts, mentoring load, and coordination health.
+The engine tracks perceived progress separately from internal true progress and unknown rework. Gameplay receives only perceived progress, phase estimates, known rework, current testing signals, and other manager-visible information. Exact unknown rework, true progress, defect probabilities, and future discoveries remain internal to Java and weekly snapshots. The dashboard shows the testing backlog category, known rework, defects found this week, and selectable testing priority. The in-project Manage Team panel shows active staff by role and experience, onboarding states, pending hires, salary and hiring-cost previews, payroll and cost forecasts, mentoring load, and coordination health.
+
+## Work, quality, and testing
+
+Each project phase starts with its scenario-defined base work. Attempted work reduces base work remaining and is split into correct work and unknown rework. Unknown rework is defective output the project currently believes is correct: it contributes to perceived progress but not true progress. When QA tests available work, a seeded aggregate detection model may move unknown rework to known rework. The manager sees known rework and testing backlog status, but not the hidden stock.
+
+Developers reserve a configurable share of capacity for known rework and use the rest for new requirements, design, and development. Repairs consume capacity; correct repairs increase true progress, while defective repairs return to unknown rework. Correctly repaired work creates regression-testing demand. QA capacity is limited to output that has become testable and advances testing work without creating development features. DevOps capacity performs deployment work. Project phases overlap gradually: requirements progress increases design availability, design progress increases development availability, and tested development increases deployment readiness.
+
+Testing priority changes QA inspection capacity and detection effectiveness. Low priority does not directly create defects; it allows more defects to remain hidden while testing backlog grows. Defect probability is bounded and affected by configured base rates, experience, onboarding, fatigue, coordination, schedule pressure, work intensity, mentoring coverage, and hidden upstream defects. Defective work is sampled in aggregate using the engine's seeded random generator rather than rolling once per microscopic work unit.
+
+The schedule forecast uses perceived remaining work, known rework, role-specific capacity, and testing backlog. It never uses unknown rework or exact hidden defect counts. A project can satisfy its known work, testing, and deployment requirements and release while unknown defects remain; the released-defect count is retained internally for later analysis.
 
 Post-start hires are selected by role, experience, and quantity. Hiring fees are charged when the decision is accepted; salary and productivity begin only when recruiting delay expires. Hires then contribute at configured initial onboarding effectiveness and progress toward full contribution over their experience-based onboarding duration, moderated by mentoring coverage. Junior, mid-level, and senior staff have different salary and productivity values. Non-developer roles contribute to QA, DevOps, project management, mentoring, and coordination effects, but not feature-development throughput.
 

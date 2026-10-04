@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.EnumMap;
 
 /** Internal end-of-week record; hidden fields are not part of gameplay DTOs. */
 public class WeeklySnapshot {
@@ -31,6 +32,19 @@ public class WeeklySnapshot {
     private final int estimatedCompletionWeek;
     private final double schedulePressure;
     private final List<String> recentMessages;
+    private final Map<ProjectPhase, Double> workAttemptedByPhase;
+    private final Map<ProjectPhase, Double> correctWorkByPhase;
+    private final Map<ProjectPhase, Double> unknownReworkByPhase;
+    private final Map<ProjectPhase, Double> knownReworkByPhase;
+    private final Map<ProjectPhase, Double> reworkCompletedByPhase;
+    private final Map<ProjectPhase, Double> defectsCreatedByPhase;
+    private final Map<ProjectPhase, Double> defectsDiscoveredByPhase;
+    private final double testingBacklog;
+    private final double qaCapacity;
+    private final int releasedDefects;
+    private final String qualityHealth;
+    private final String testingBacklogStatus;
+    private final TestingPriority testingPriority;
 
     public WeeklySnapshot(int week, BigDecimal spent, BigDecimal remainingBudget,
                           BigDecimal weeklyCost, double perceivedProgress,
@@ -43,7 +57,17 @@ public class WeeklySnapshot {
                           double averageProductivity, double averageFatigue,
                           double knownRework, double unknownRework,
                           int estimatedCompletionWeek, double schedulePressure,
-                          List<String> recentMessages) {
+                          List<String> recentMessages,
+                          Map<ProjectPhase, Double> workAttemptedByPhase,
+                          Map<ProjectPhase, Double> correctWorkByPhase,
+                          Map<ProjectPhase, Double> unknownReworkByPhase,
+                          Map<ProjectPhase, Double> knownReworkByPhase,
+                          Map<ProjectPhase, Double> reworkCompletedByPhase,
+                          Map<ProjectPhase, Double> defectsCreatedByPhase,
+                          Map<ProjectPhase, Double> defectsDiscoveredByPhase,
+                          double testingBacklog, double qaCapacity, int releasedDefects,
+                          String qualityHealth, String testingBacklogStatus,
+                          TestingPriority testingPriority) {
         if (week < 1) {
             throw new IllegalArgumentException("A weekly snapshot must represent Week 1 or later");
         }
@@ -74,6 +98,19 @@ public class WeeklySnapshot {
         this.estimatedCompletionWeek = estimatedCompletionWeek;
         this.schedulePressure = SimulationValues.unitInterval(schedulePressure);
         this.recentMessages = List.copyOf(recentMessages);
+        this.workAttemptedByPhase = immutablePhaseMap(workAttemptedByPhase);
+        this.correctWorkByPhase = immutablePhaseMap(correctWorkByPhase);
+        this.unknownReworkByPhase = immutablePhaseMap(unknownReworkByPhase);
+        this.knownReworkByPhase = immutablePhaseMap(knownReworkByPhase);
+        this.reworkCompletedByPhase = immutablePhaseMap(reworkCompletedByPhase);
+        this.defectsCreatedByPhase = immutablePhaseMap(defectsCreatedByPhase);
+        this.defectsDiscoveredByPhase = immutablePhaseMap(defectsDiscoveredByPhase);
+        this.testingBacklog = SimulationValues.nonNegativeFinite(testingBacklog);
+        this.qaCapacity = SimulationValues.nonNegativeFinite(qaCapacity);
+        this.releasedDefects = Math.max(0, releasedDefects);
+        this.qualityHealth = qualityHealth;
+        this.testingBacklogStatus = testingBacklogStatus;
+        this.testingPriority = testingPriority;
     }
 
     public int getWeek() {
@@ -170,5 +207,27 @@ public class WeeklySnapshot {
 
     public List<String> getRecentMessages() {
         return recentMessages;
+    }
+
+    public Map<ProjectPhase, Double> getWorkAttemptedByPhase() { return workAttemptedByPhase; }
+    public Map<ProjectPhase, Double> getCorrectWorkByPhase() { return correctWorkByPhase; }
+    public Map<ProjectPhase, Double> getUnknownReworkByPhase() { return unknownReworkByPhase; }
+    public Map<ProjectPhase, Double> getKnownReworkByPhase() { return knownReworkByPhase; }
+    public Map<ProjectPhase, Double> getReworkCompletedByPhase() { return reworkCompletedByPhase; }
+    public Map<ProjectPhase, Double> getDefectsCreatedByPhase() { return defectsCreatedByPhase; }
+    public Map<ProjectPhase, Double> getDefectsDiscoveredByPhase() { return defectsDiscoveredByPhase; }
+    public double getTestingBacklog() { return testingBacklog; }
+    public double getQaCapacity() { return qaCapacity; }
+    public int getReleasedDefects() { return releasedDefects; }
+    public String getQualityHealth() { return qualityHealth; }
+    public String getTestingBacklogStatus() { return testingBacklogStatus; }
+    public TestingPriority getTestingPriority() { return testingPriority; }
+
+    private Map<ProjectPhase, Double> immutablePhaseMap(Map<ProjectPhase, Double> source) {
+        EnumMap<ProjectPhase, Double> copy = new EnumMap<>(ProjectPhase.class);
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            copy.put(phase, SimulationValues.nonNegativeFinite(source.getOrDefault(phase, 0.0)));
+        }
+        return Map.copyOf(copy);
     }
 }

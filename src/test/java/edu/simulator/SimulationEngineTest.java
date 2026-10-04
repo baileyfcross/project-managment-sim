@@ -11,14 +11,20 @@ import edu.simulator.model.Project;
 import edu.simulator.model.ProjectPhase;
 import edu.simulator.model.Role;
 import edu.simulator.model.Team;
+import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WorkState;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.CoordinationModel;
 import edu.simulator.simulation.DefectModel;
 import edu.simulator.simulation.FatigueModel;
+import edu.simulator.simulation.ForecastModel;
 import edu.simulator.simulation.MentoringModel;
+import edu.simulator.simulation.NewWorkModel;
+import edu.simulator.simulation.PhaseReadinessModel;
 import edu.simulator.simulation.ProductivityModel;
+import edu.simulator.simulation.ReworkModel;
 import edu.simulator.simulation.SimulationEngine;
+import edu.simulator.simulation.TestingModel;
 import edu.simulator.simulation.WorkIntensity;
 import edu.simulator.ui.JavaBridge;
 import org.junit.jupiter.api.Test;
@@ -28,6 +34,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -396,6 +403,240 @@ class SimulationEngineTest {
         assertEquals(observations(first), observations(second));
         assertEquals(first.getHistory().get(4).getExperienceCounts(),
                 second.getHistory().get(4).getExperienceCounts());
+    }
+
+    @Test
+    void zeroDeveloperCapacityDoesNotAttemptNewPhaseWork() {
+        var config = ConfigurationLoader.loadDefault();
+        WorkState work = new WorkState();
+        work.setTotalWork(ProjectPhase.DEVELOPMENT, 100.0);
+
+        var result = new NewWorkModel().performDevelopment(
+                work, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                WorkIntensity.SUSTAINABLE, config, new Random(1));
+
+        assertEquals(0.0, result.totalAttempted());
+        assertEquals(100.0, work.getBaseWorkRemaining(ProjectPhase.DEVELOPMENT));
+        assertEquals(0.0, work.getTotalWorkAttemptedThisWeek());
+    }
+
+    @Test
+    void attemptedWorkSplitsBetweenCorrectAndUnknownRework() {
+        var config = ConfigurationLoader.loadDefault();
+        config.getQuality().setBaseDefectRate(1.0);
+        config.getQuality().setDefectCap(1.0);
+        WorkState work = new WorkState();
+        work.setTotalWork(ProjectPhase.DEVELOPMENT, 100.0);
+
+        new NewWorkModel().performDevelopment(
+                work, 100.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                WorkIntensity.SUSTAINABLE, config, new Random(2));
+
+        assertEquals(0.0, work.getBaseWorkRemaining(ProjectPhase.DEVELOPMENT));
+        assertEquals(0.0, work.getCorrectWorkCompleted(ProjectPhase.DEVELOPMENT));
+        assertEquals(100.0, work.getUnknownRework(ProjectPhase.DEVELOPMENT));
+        assertEquals(100.0, work.getWorkAttemptedThisWeek(ProjectPhase.DEVELOPMENT));
+        assertEquals(100.0, work.getDefectsCreatedThisWeek(ProjectPhase.DEVELOPMENT));
+    }
+
+    @Test
+    void defectProbabilityAndSamplingAreBoundedAndSeeded() {
+        var config = ConfigurationLoader.loadDefault();
+        DefectModel model = new DefectModel();
+        double capped = model.defectProbability(1.0, 1.0, 1.0, 1.0, 1.0, config);
+        assertTrue(capped >= 0.0 && capped <= 1.0);
+        assertEquals(model.sampleDefectiveWork(800.0, 0.25, new Random(42)),
+                model.sampleDefectiveWork(800.0, 0.25, new Random(42)));
+
+        WorkState lowWork = new WorkState();
+        WorkState highWork = new WorkState();
+        lowWork.setTotalWork(ProjectPhase.DEVELOPMENT, 100_000.0);
+        highWork.setTotalWork(ProjectPhase.DEVELOPMENT, 100_000.0);
+        config.getQuality().setBaseDefectRate(0.05);
+        new NewWorkModel().performDevelopment(
+                lowWork, 80_000.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                WorkIntensity.SUSTAINABLE, config, new Random(6));
+        config.getQuality().setBaseDefectRate(0.4);
+        new NewWorkModel().performDevelopment(
+                highWork, 80_000.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                WorkIntensity.SUSTAINABLE, config, new Random(6));
+        assertTrue(highWork.totalUnknownRework() > lowWork.totalUnknownRework());
+    }
+
+    @Test
+    void qaInspectionIsLimitedByTestableWorkAndUnknownDefects() {
+        var config = ConfigurationLoader.loadDefault();
+        config.getQa().setBaseDetectionRate(1.0);
+        WorkState noQa = new WorkState();
+        noQa.addUnknownRework(ProjectPhase.DEVELOPMENT, 10.0);
+        noQa.addTestableWork(ProjectPhase.DEVELOPMENT, 100.0);
+        TestingModel model = new TestingModel();
+        var idle = model.perform(noQa, 0.0, 0.0, TestingPriority.NORMAL, config, new Random(3));
+        assertEquals(0.0, idle.workInspected());
+        assertEquals(0.0, idle.defectsDiscovered());
+        assertEquals(100.0, idle.backlog());
+
+        WorkState limited = new WorkState();
+        limited.addUnknownRework(ProjectPhase.DEVELOPMENT, 10.0);
+        limited.addTestableWork(ProjectPhase.DEVELOPMENT, 100.0);
+        var result = model.perform(limited, 1.0, 0.0, TestingPriority.HIGH, config, new Random(4));
+        assertTrue(result.workInspected() <= 100.0);
+        assertTrue(result.defectsDiscovered() <= 10.0);
+        assertTrue(result.defectsDiscovered() > 0.0);
+        assertTrue(limited.getKnownRework(ProjectPhase.DEVELOPMENT) <= 10.0);
+
+        WorkState ordinary = new WorkState();
+        WorkState highPriority = new WorkState();
+        ordinary.addTestableWork(ProjectPhase.DEVELOPMENT, 500.0);
+        highPriority.addTestableWork(ProjectPhase.DEVELOPMENT, 500.0);
+        double normalInspected = model.perform(
+                ordinary, 0.5, 0.0, TestingPriority.NORMAL, config, new Random(5)).workInspected();
+        double highInspected = model.perform(
+                highPriority, 0.5, 0.0, TestingPriority.HIGH, config, new Random(5)).workInspected();
+        assertTrue(highInspected > normalInspected);
+    }
+
+    @Test
+    void reworkConsumesKnownStockCanFailAgainAndCreatesRegressionDemand() {
+        var config = ConfigurationLoader.loadDefault();
+        WorkState work = new WorkState();
+        work.addUnknownRework(ProjectPhase.DEVELOPMENT, 20.0);
+        assertEquals(20.0, work.discoverDefects(ProjectPhase.DEVELOPMENT, 30.0));
+        assertEquals(0.0, work.getUnknownRework(ProjectPhase.DEVELOPMENT));
+        assertEquals(20.0, work.getKnownRework(ProjectPhase.DEVELOPMENT));
+        config.getQuality().setReworkCreationRate(0.0);
+        var fixed = new ReworkModel().perform(work, 50.0, 1.0, config, new Random(8));
+        assertEquals(20.0, fixed.attempted());
+        assertEquals(20.0, fixed.fixedCorrectly());
+        assertEquals(0.0, work.getKnownRework(ProjectPhase.DEVELOPMENT));
+        assertEquals(20.0, work.getCorrectWorkCompleted(ProjectPhase.DEVELOPMENT));
+        assertEquals(5.0, work.getTestingBacklog(ProjectPhase.TESTING));
+
+        work.addKnownRework(ProjectPhase.DEVELOPMENT, 7.0);
+        config.getQuality().setReworkCreationRate(1.0);
+        config.getQuality().setReworkDefectMultiplier(1.0);
+        new ReworkModel().perform(work, 7.0, 1.0, config, new Random(9));
+        assertEquals(0.0, work.getKnownRework(ProjectPhase.DEVELOPMENT));
+        assertEquals(7.0, work.getUnknownRework(ProjectPhase.DEVELOPMENT));
+        assertTrue(work.getKnownRework(ProjectPhase.DEVELOPMENT) >= 0.0);
+    }
+
+    @Test
+    void workDefectQaRepairRegressionCycleRunsEndToEnd() {
+        var config = ConfigurationLoader.loadDefault();
+        config.getQuality().setBaseDefectRate(1.0);
+        config.getQuality().setDefectCap(1.0);
+        config.getQuality().setReworkDefectMultiplier(1.0);
+        config.getQuality().setReworkCreationRate(0.0);
+        config.getQa().setBaseDetectionRate(1.0);
+        WorkState work = new WorkState();
+        work.setTotalWork(ProjectPhase.DEVELOPMENT, 100.0);
+        work.setTotalWork(ProjectPhase.TESTING, 100.0);
+
+        new NewWorkModel().performDevelopment(
+                work, 100.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                WorkIntensity.SUSTAINABLE, config, new Random(17));
+        assertEquals(100.0, work.getUnknownRework(ProjectPhase.DEVELOPMENT));
+
+        TestingModel testingModel = new TestingModel();
+        var testPass = testingModel.perform(
+                work, 1.0, 0.0, TestingPriority.NORMAL, config, new Random(18));
+        assertTrue(testPass.defectsDiscovered() > 0.0);
+        assertTrue(work.totalKnownRework() > 0.0);
+        assertTrue(work.totalUnknownRework() < 100.0);
+
+        double backlogBeforeRepairRetest = work.getTotalTestingBacklog();
+        ReworkModel.ReworkResult repairs = new ReworkModel().perform(
+                work, work.totalKnownRework(), 1.0, config, new Random(19));
+        assertTrue(repairs.fixedCorrectly() > 0.0);
+        assertEquals(0.0, work.totalKnownRework());
+        assertTrue(work.getTestingBacklog(ProjectPhase.TESTING) > 0.0);
+        assertTrue(work.getTotalTestingBacklog() > backlogBeforeRepairRetest);
+
+        testingModel.perform(work, 1.0, 0.0, TestingPriority.HIGH, config, new Random(20));
+        assertTrue(work.getTotalTestingBacklog() < backlogBeforeRepairRetest
+                + repairs.fixedCorrectly() * config.getQuality().getRegressionTestingFactor());
+    }
+
+    @Test
+    void perceivedProgressAndForecastRespectHiddenInformationBoundary() throws Exception {
+        Project project = new Project("test", "Test", 20, BigDecimal.valueOf(100_000));
+        WorkState work = project.getWorkState();
+        work.setTotalWork(ProjectPhase.DEVELOPMENT, 100.0);
+        work.recordNewWork(ProjectPhase.DEVELOPMENT, 100.0, 20.0);
+        assertEquals(1.0, project.calculatePerceivedProgress());
+        assertEquals(0.8, project.calculateTrueProgress());
+        int beforeDiscovery = new ForecastModel().estimateCompletionWeek(project, 100.0);
+
+        work.discoverDefects(ProjectPhase.DEVELOPMENT, 20.0);
+        assertEquals(0.8, project.calculatePerceivedProgress());
+        assertEquals(0.8, project.calculateTrueProgress());
+        int afterDiscovery = new ForecastModel().estimateCompletionWeek(project, 100.0);
+        assertTrue(afterDiscovery > beforeDiscovery);
+
+        SimulationEngine engine = newEngine(35L, null);
+        engine.advanceWeek();
+        String json = objectMapper.writeValueAsString(engine.getCurrentState());
+        assertFalse(json.contains("trueProgress"));
+        assertFalse(json.contains("unknownRework"));
+        assertFalse(json.contains("defectProbability"));
+        assertTrue(json.contains("phaseProgress"));
+        assertTrue(json.contains("testingBacklogStatus"));
+    }
+
+    @Test
+    void phaseReadinessOverlapsGraduallyAndDevopsDoesDeploymentWork() {
+        var config = ConfigurationLoader.loadDefault();
+        WorkState work = new WorkState();
+        work.setTotalWork(ProjectPhase.REQUIREMENTS, 100.0);
+        work.setTotalWork(ProjectPhase.DESIGN, 100.0);
+        work.setTotalWork(ProjectPhase.DEVELOPMENT, 100.0);
+        PhaseReadinessModel readiness = new PhaseReadinessModel();
+        assertEquals(0.1, readiness.readiness(ProjectPhase.DESIGN, work, config));
+        work.recordNewWork(ProjectPhase.REQUIREMENTS, 50.0, 0.0);
+        assertTrue(readiness.readiness(ProjectPhase.DESIGN, work, config) > 0.1);
+        assertEquals(0.1, readiness.readiness(ProjectPhase.DEVELOPMENT, work, config));
+        work.recordNewWork(ProjectPhase.DESIGN, 50.0, 0.0);
+        assertTrue(readiness.readiness(ProjectPhase.DEVELOPMENT, work, config) > 0.1);
+
+        work.setTotalWork(ProjectPhase.DEPLOYMENT, 100.0);
+        var model = new NewWorkModel();
+        var noDevops = model.performDeployment(work, 0.0, 1.0, 1.0, 0.0,
+                0.0, 0.0, WorkIntensity.SUSTAINABLE, config, new Random(10));
+        assertEquals(0.0, noDevops.totalAttempted());
+        var withDevops = model.performDeployment(work, 100.0, 1.0, 1.0, 0.0,
+                0.0, 0.0, WorkIntensity.SUSTAINABLE, config, new Random(10));
+        assertTrue(withDevops.totalAttempted() > 0.0);
+    }
+
+    @Test
+    void developerHeavyTeamBuildsMoreTestBacklogAndHiddenDefects() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        scenario.setScope(Map.of(
+                "requirements", 0.0,
+                "design", 0.0,
+                "development", 40_000.0,
+                "testing", 20_000.0,
+                "deployment", 0.0));
+        scenario.setBudget(BigDecimal.valueOf(2_000_000));
+        var config = ConfigurationLoader.loadDefault();
+        SimulationEngine balanced = new SimulationEngine(scenario, config, 411L,
+                teamCounts(4, 6, 0, 0));
+        SimulationEngine developerHeavy = new SimulationEngine(scenario, config, 411L,
+                teamCounts(10, 1, 0, 0));
+        for (int week = 0; week < 5; week++) {
+            balanced.advanceWeek();
+            developerHeavy.advanceWeek();
+        }
+
+        assertTrue(developerHeavy.getProject().calculatePerceivedPhaseProgress()
+                .get(ProjectPhase.DEVELOPMENT)
+                > balanced.getProject().calculatePerceivedPhaseProgress()
+                .get(ProjectPhase.DEVELOPMENT));
+        assertTrue(developerHeavy.getProject().getWorkState().getTotalTestingBacklog()
+                > balanced.getProject().getWorkState().getTotalTestingBacklog());
+        assertTrue(developerHeavy.getProject().getWorkState().totalUnknownRework()
+                > balanced.getProject().getWorkState().totalUnknownRework());
     }
 
     private SimulationEngine newEngine(long seed, Map<Role, Integer> team) {

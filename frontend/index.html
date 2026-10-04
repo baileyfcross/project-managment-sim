@@ -39,6 +39,8 @@
       .error { min-height: 20px; margin-top: 12px; color: #ff9999; }
       .progress-track { height: 12px; margin-top: 11px; overflow: hidden; border-radius: 99px; background: #2b3b51; }
       .progress-fill { height: 100%; border-radius: inherit; background: #45a0ff; }
+      .phase-progress-row { display: grid; grid-template-columns: 130px minmax(100px, 1fr) 48px; gap: 12px; align-items: center; margin: 12px 0; }
+      .phase-progress-row .progress-track { width: 100%; margin: 0; }
       .muted { color: #aab9cc; font-size: 13px; }
       [hidden] { display: none !important; }
       @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two-column { grid-template-columns: 1fr; } }
@@ -94,6 +96,12 @@
               <option value="CRUNCH">Crunch</option>
             </select>
             <button id="advanceButton" class="primary">Advance 1 Week</button>
+            <label for="testingPriority">Testing priority</label>
+            <select id="testingPriority">
+              <option value="LOW">Low</option>
+              <option value="NORMAL">Normal</option>
+              <option value="HIGH">High</option>
+            </select>
             <span id="seedValue" class="muted"></span>
           </div>
           <p id="dashboardError" class="error" role="alert"></p>
@@ -110,6 +118,8 @@
             <div id="progressValue" class="metric-value">0%</div>
             <div class="progress-track"><div id="progressBar" class="progress-fill" style="width: 0%"></div></div>
             <p class="muted">Progress is the project manager's current estimate.</p>
+            <h3>Progress by phase</h3>
+            <div id="phaseProgressList" aria-label="Perceived progress by phase"></div>
           </div>
           <div class="card">
             <h2>Project health</h2>
@@ -118,6 +128,10 @@
               <div><div class="metric-label">Budget</div><p id="budgetHealth" class="health">-</p></div>
               <div><div class="metric-label">Quality</div><p id="qualityHealth" class="health">-</p></div>
               <div><div class="metric-label">Team morale</div><p id="moraleHealth" class="health">-</p></div>
+              <div><div class="metric-label">Known rework</div><p id="knownReworkValue" class="health">0</p></div>
+              <div><div class="metric-label">Defects found this week</div><p id="defectsFoundValue" class="health">0</p></div>
+              <div><div class="metric-label">Testing backlog</div><p id="testingBacklogValue" class="health">-</p></div>
+              <div><div class="metric-label">QA capacity</div><p id="qaCapacityValue" class="health">-</p></div>
             </div>
             <p>Estimated completion: <strong id="forecastValue">-</strong></p>
           </div>

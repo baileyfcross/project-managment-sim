@@ -9,6 +9,7 @@ import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.decision.HiringDecision;
 import edu.simulator.model.ExperienceLevel;
 import edu.simulator.model.Role;
+import edu.simulator.model.TestingPriority;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.SimulationEngine;
 import edu.simulator.simulation.WorkIntensity;
@@ -86,6 +87,16 @@ public class JavaBridge {
             simulationEngine.setWorkIntensity(WorkIntensity.valueOf(intensity));
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new IllegalArgumentException("Unknown work intensity: " + intensity, exception);
+        }
+        return getSimulationState();
+    }
+
+    public String setTestingPriority(String priority) {
+        requireSimulation();
+        try {
+            simulationEngine.setTestingPriority(TestingPriority.valueOf(priority));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new IllegalArgumentException("Unknown testing priority: " + priority, exception);
         }
         return getSimulationState();
     }

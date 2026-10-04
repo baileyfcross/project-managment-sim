@@ -30,6 +30,12 @@ type SimulationState = {
   recentMessages: string[];
   workIntensity: string;
   complete: boolean;
+  phaseProgress: Record<string, number>;
+  knownRework: number;
+  defectsDiscoveredThisWeek: number;
+  testingBacklogStatus: string;
+  testingPriority: string;
+  qaCapacity: number;
 };
 
 type HiringOption = {
@@ -61,6 +67,7 @@ type JavaBridge = {
   getSimulationState(): string;
   advanceWeek(): string;
   setWorkIntensity(intensity: string): string;
+  setTestingPriority(priority: string): string;
   getTeamManagementState(): string;
   hireEmployee(role: string, experience: string, quantity: number): string;
 };
@@ -133,7 +140,39 @@ function renderDashboard(state: SimulationState): void {
   document.getElementById('budgetHealth')!.textContent = state.budgetHealth;
   document.getElementById('qualityHealth')!.textContent = state.qualityHealth;
   document.getElementById('moraleHealth')!.textContent = state.moraleHealth;
+  document.getElementById('knownReworkValue')!.textContent = String(Math.round(state.knownRework));
+  document.getElementById('defectsFoundValue')!.textContent = String(Math.round(state.defectsDiscoveredThisWeek));
+  document.getElementById('testingBacklogValue')!.textContent = state.testingBacklogStatus;
+  document.getElementById('qaCapacityValue')!.textContent = state.qaCapacity.toFixed(2);
   document.getElementById('seedValue')!.textContent = `Seed: ${state.seed}`;
+  (document.getElementById('testingPriority') as HTMLSelectElement).value = state.testingPriority;
+
+  const phaseNames: Record<string, string> = {
+    REQUIREMENTS: 'Requirements',
+    DESIGN: 'Design',
+    DEVELOPMENT: 'Development',
+    TESTING: 'Testing',
+    DEPLOYMENT: 'Deployment'
+  };
+  const phases = document.getElementById('phaseProgressList')!;
+  phases.replaceChildren();
+  for (const [phase, progressValue] of Object.entries(state.phaseProgress)) {
+    const progress = Math.max(0, Math.min(1, progressValue));
+    const row = document.createElement('div');
+    row.className = 'phase-progress-row';
+    const label = document.createElement('span');
+    label.textContent = phaseNames[phase] ?? phase;
+    const track = document.createElement('div');
+    track.className = 'progress-track';
+    const fill = document.createElement('div');
+    fill.className = 'progress-fill';
+    fill.style.width = `${progress * 100}%`;
+    track.appendChild(fill);
+    const percentage = document.createElement('strong');
+    percentage.textContent = `${(progress * 100).toFixed(0)}%`;
+    row.append(label, track, percentage);
+    phases.appendChild(row);
+  }
 
   document.getElementById('devCount')!.textContent = String(state.teamCounts.DEVELOPER ?? 0);
   document.getElementById('qaCount')!.textContent = String(state.teamCounts.QA_ENGINEER ?? 0);
@@ -332,10 +371,27 @@ function updateWorkIntensity(value: string): void {
   }
 }
 
+function updateTestingPriority(value: string): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('dashboardError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    renderDashboard(parseResponse<SimulationState>(bridge.setTestingPriority(value)));
+    document.getElementById('dashboardError')!.textContent = '';
+  } catch (error) {
+    displayError('dashboardError', error);
+  }
+}
+
 document.getElementById('startButton')!.addEventListener('click', startProject);
 document.getElementById('advanceButton')!.addEventListener('click', advanceWeek);
 document.getElementById('workIntensity')!.addEventListener('change', (event) => {
   updateWorkIntensity((event.currentTarget as HTMLSelectElement).value);
+});
+document.getElementById('testingPriority')!.addEventListener('change', (event) => {
+  updateTestingPriority((event.currentTarget as HTMLSelectElement).value);
 });
 document.getElementById('hireButton')!.addEventListener('click', hireEmployees);
 for (const id of ['hireRole', 'hireExperience', 'hireQuantity']) {

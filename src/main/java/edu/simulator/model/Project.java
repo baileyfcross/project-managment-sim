@@ -130,15 +130,7 @@ public class Project {
     }
 
     public boolean isComplete() {
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            if (workState.getTotalWork(phase) > 0.0 && workState.getCompletedWork(phase) < workState.getTotalWork(phase)) {
-                return false;
-            }
-            if (workState.getKnownRework(phase) > 0.0) {
-                return false;
-            }
-        }
-        return true;
+        return workState.isReleaseReady();
     }
 
     public double calculatePerceivedProgress() {
@@ -149,7 +141,8 @@ public class Project {
             if (phaseTotal <= 0.0) {
                 continue;
             }
-            double ratio = (workState.getCompletedWork(phase) + workState.getUnknownRework(phase)) / phaseTotal;
+            double ratio = (workState.getCorrectWorkCompleted(phase)
+                    + workState.getUnknownRework(phase)) / phaseTotal;
             complete += Math.min(1.0, ratio) * phaseTotal;
             total += phaseTotal;
         }
@@ -167,13 +160,19 @@ public class Project {
             if (phaseTotal <= 0.0) {
                 continue;
             }
-            complete += Math.min(1.0, workState.getCompletedWork(phase) / phaseTotal) * phaseTotal;
+            complete += Math.min(1.0,
+                    workState.getCorrectWorkCompleted(phase) / phaseTotal) * phaseTotal;
             total += phaseTotal;
         }
+
         if (total <= 0.0) {
             return 0.0;
         }
         return SimulationValues.unitInterval(complete / total);
+    }
+
+    public Map<ProjectPhase, Double> calculatePerceivedPhaseProgress() {
+        return workState.phasePerceivedProgress();
     }
 
     public void recordSchedulePressure(double pressure) {

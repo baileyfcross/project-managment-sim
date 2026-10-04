@@ -12,6 +12,7 @@ import edu.simulator.model.ProjectPhase;
 import edu.simulator.model.PendingHire;
 import edu.simulator.model.Role;
 import edu.simulator.model.Team;
+import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WeeklySnapshot;
 import edu.simulator.model.WorkState;
 import edu.simulator.report.FinalProjectReport;
@@ -44,6 +45,7 @@ public class SimulationEngine {
     private double morale = 0.72;
     private double schedulePressure = 0.15;
     private WorkIntensity workIntensity = WorkIntensity.SUSTAINABLE;
+    private TestingPriority testingPriority = TestingPriority.NORMAL;
     private boolean complete;
     private int totalTurnover;
     private int defectsReleased;
@@ -112,6 +114,13 @@ public class SimulationEngine {
             throw new IllegalArgumentException("Work intensity is required");
         }
         this.workIntensity = workIntensity;
+    }
+
+    public void setTestingPriority(TestingPriority testingPriority) {
+        if (testingPriority == null) {
+            throw new IllegalArgumentException("Testing priority is required");
+        }
+        this.testingPriority = testingPriority;
     }
 
     public Project getProject() {
@@ -207,8 +216,13 @@ public class SimulationEngine {
     public SimulationStateDto getCurrentState() {
         CostModel costModel = new CostModel();
         BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
-        double weeklyWorkCapacity = developerCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
-        int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(project, weeklyWorkCapacity);
+        ProductivityModel.ProductivityResult productivity = calculateProductivity();
+        int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(
+                project, productivity.developerEffectiveCapacity(),
+                productivity.qaEffectiveCapacity()
+                        * config.getTesting().capacityFactor(testingPriority),
+                productivity.devopsEffectiveCapacity(),
+                project.getWorkState().getTotalTestingBacklog());
         int estimatedWeeksToFinish = estimatedCompletionWeek < 0
                 ? Math.max(0, scenario.getDeadlineWeeks() - project.getCurrentWeek())
                 : Math.max(0, estimatedCompletionWeek - project.getCurrentWeek());
@@ -240,7 +254,14 @@ public class SimulationEngine {
                 moraleHealthLabel(),
                 messages,
                 workIntensity,
-                complete
+                complete,
+                phaseProgressForUi(),
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalDefectsDiscoveredThisWeek(),
+                new TestingModel().backlogStatus(
+                        project.getWorkState().getTotalTestingBacklog(), config),
+                testingPriority,
+                productivity.qaEffectiveCapacity()
         );
     }
 
@@ -310,6 +331,10 @@ public class SimulationEngine {
 
         int simulatedWeek = project.getCurrentWeek() + 1;
         project.setCurrentWeek(simulatedWeek);
+        project.getWorkState().beginWeek();
+        String previousBacklogStatus = new TestingModel().backlogStatus(
+                project.getWorkState().getTotalTestingBacklog(), config);
+        double previousKnownRework = project.getWorkState().totalKnownRework();
         activatePendingHires(simulatedWeek);
         for (Employee employee : team.activeEmployees()) {
             employee.incrementWeek();
@@ -317,21 +342,61 @@ public class SimulationEngine {
         MentoringModel mentoringModel = new MentoringModel();
         MentoringModel.MentoringResult mentoring =
                 mentoringModel.calculate(team, pendingHires.size(), config);
+        int onboardedCount = mentoringModel.advanceOnboarding(team, mentoring, config);
+        if (onboardedCount > 0) {
+            addMessage(onboardedCount + (onboardedCount == 1
+                    ? " employee completed onboarding."
+                    : " employees completed onboarding."));
+        }
+        mentoring = mentoringModel.calculate(team, pendingHires.size(), config);
         double coordinationPenalty = new CoordinationModel().calculatePenalty(team, config);
         ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculate(
                 team, workIntensity, fatigue, schedulePressure, config, mentoring);
-        double workCapacity = productivity.developerEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
-        double defectRate = new DefectModel().defectProbability(
-                config.getQuality().getBaseDefectRate(), fatigue, schedulePressure,
-                coordinationPenalty, averageDeveloperOnboardingDeficit(), config);
-
-        workCapacity = completeKnownRework(workCapacity, defectRate);
-        performNewWork(workCapacity, defectRate);
-        discoverDefects(productivity.qaEffectiveCapacity());
+        double developerWorkCapacity =
+                productivity.developerEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY;
+        WorkAllocationModel.Allocation allocation = new WorkAllocationModel().allocate(
+                developerWorkCapacity, project.getWorkState().totalKnownRework(), config);
+        DefectModel defectModel = new DefectModel();
+        double developerDefectRate = defectModel.defectProbability(
+                ProjectPhase.DEVELOPMENT, developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
+                mentoring.coverage(), fatigue, coordinationPenalty, schedulePressure,
+                workIntensity, project.getWorkState(), config);
+        ReworkModel.ReworkResult rework = new ReworkModel().perform(
+                project.getWorkState(), allocation.reworkCapacity(), developerDefectRate, config, random);
+        NewWorkModel.NewWorkResult newWork = new NewWorkModel().performDevelopment(
+                project.getWorkState(), allocation.newWorkCapacity() + rework.unusedCapacity(),
+                developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
+                mentoring.coverage(), fatigue, coordinationPenalty, schedulePressure,
+                workIntensity, config, random);
+        NewWorkModel.NewWorkResult deployment = new NewWorkModel().performDeployment(
+                project.getWorkState(),
+                productivity.devopsEffectiveCapacity() * WORK_UNITS_PER_PRODUCTIVITY,
+                roleExperienceModifier(Role.DEVOPS_ENGINEER), mentoring.coverage(),
+                fatigue, coordinationPenalty, schedulePressure, workIntensity, config, random);
+        TestingModel.TestingResult testing = new TestingModel().perform(
+                project.getWorkState(), productivity.qaEffectiveCapacity(), fatigue,
+                testingPriority, config, random);
+        if (testing.defectsDiscovered() >= 1.0) {
+            addMessage("QA discovered " + Math.round(testing.defectsDiscovered())
+                    + " defects requiring rework.");
+        }
+        if (!testing.backlogStatus().equals(previousBacklogStatus)) {
+            addMessage("Testing backlog is " + testing.backlogStatus().toLowerCase() + ".");
+        }
+        if (rework.attempted() >= 1.0) {
+            addMessage("Developers completed " + Math.round(rework.attempted())
+                    + " units of known rework.");
+        }
+        if (rework.fixedCorrectly() > 0.0 && config.getQuality().getRegressionTestingFactor() > 0.0) {
+            addMessage("Regression testing demand increased after recent fixes.");
+        }
+        if (previousKnownRework == 0.0 && project.getWorkState().totalKnownRework() > 0.0) {
+            addMessage("Known rework is affecting the completion forecast.");
+        }
 
         schedulePressure = new SchedulePressureModel().calculate(
                 project, project.getWorkState().perceivedRemainingWork(),
-                Math.max(1.0, workCapacity), project.getWorkState().totalKnownRework(), config);
+                Math.max(1.0, developerWorkCapacity), project.getWorkState().totalKnownRework(), config);
         project.recordSchedulePressure(schedulePressure);
         fatigue = new FatigueModel().updateFatigue(fatigue, workIntensity, config);
         for (Employee employee : team.activeEmployees()) {
@@ -339,17 +404,6 @@ public class SimulationEngine {
         }
         morale = clamp(morale - schedulePressure * 0.18
                 + (workIntensity == WorkIntensity.SUSTAINABLE ? 0.03 : -0.02));
-        int onboardedCount = mentoringModel.advanceOnboarding(team, mentoring, config);
-        if (onboardedCount > 0) {
-            addMessage(onboardedCount + (onboardedCount == 1
-                    ? " employee completed onboarding."
-                    : " employees completed onboarding."));
-        }
-        String mentoringLabel = mentoringModel.calculate(team, pendingHires.size(), config).loadLabel();
-        if (mentoringLabel.equals("Overloaded") && !mentoring.loadLabel().equals("Overloaded")) {
-            addMessage("Mentoring demand is overloaded; onboarding is progressing more slowly.");
-        }
-
         int departures = new TurnoverModel().calculateTurnover(
                 team, fatigue, morale, schedulePressure, config, random);
         totalTurnover += departures;
@@ -418,9 +472,24 @@ public class SimulationEngine {
                 project.getWorkState().totalKnownRework(),
                 project.getWorkState().totalUnknownRework(),
                 new ForecastModel().estimateCompletionWeek(
-                        project, developerCapacity() * WORK_UNITS_PER_PRODUCTIVITY),
+                        project, productivity.developerEffectiveCapacity(),
+                        productivity.qaEffectiveCapacity(), productivity.devopsEffectiveCapacity(),
+                        project.getWorkState().getTotalTestingBacklog()),
                 schedulePressure,
-                messages
+                messages,
+                project.getWorkState().phaseWorkAttemptedThisWeek(),
+                project.getWorkState().phaseCorrectWorkCompleted(),
+                project.getWorkState().phaseUnknownRework(),
+                project.getWorkState().phaseKnownRework(),
+                project.getWorkState().phaseReworkCompleted(),
+                project.getWorkState().phaseDefectsCreatedThisWeek(),
+                project.getWorkState().phaseDefectsDiscoveredThisWeek(),
+                project.getWorkState().getTotalTestingBacklog(),
+                productivity.qaEffectiveCapacity(),
+                complete ? defectsReleased : 0,
+                qualityHealthLabel(),
+                testing.backlogStatus(),
+                testingPriority
         ));
         hiringCostSinceSnapshot = BigDecimal.ZERO;
     }
@@ -442,80 +511,18 @@ public class SimulationEngine {
     }
 
     public double productivityForUi() {
-        return new ProductivityModel().calculate(team, workIntensity, fatigue,
-                schedulePressure, config).totalEffectiveCapacity();
-    }
-
-    private double completeKnownRework(double availableCapacity, double defectRate) {
-        WorkState work = project.getWorkState();
-        double capacity = availableCapacity;
-        double reworkDefectRate = defectRate * config.getQuality().getReworkCreationRate();
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            double known = work.getKnownRework(phase);
-            double attempted = Math.min(known, capacity);
-            if (attempted <= 0.0) {
-                continue;
-            }
-            double completed = attempted * (1.0 - reworkDefectRate);
-            work.addKnownRework(phase, -attempted);
-            work.addKnownRework(phase, attempted - completed);
-            work.addCompletedRework(phase, completed);
-            work.addCompletedWork(phase, completed);
-            capacity -= attempted;
-            if (capacity <= 0.0) {
-                break;
-            }
-        }
-        return Math.max(0.0, capacity);
-    }
-
-    private void performNewWork(double availableCapacity, double defectRate) {
-        WorkState work = project.getWorkState();
-        double capacity = availableCapacity;
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            double unattempted = Math.max(0.0, work.getTotalWork(phase)
-                    - work.getCompletedWork(phase)
-                    - work.getKnownRework(phase)
-                    - work.getUnknownRework(phase));
-            double attempted = Math.min(unattempted, capacity);
-            if (attempted <= 0.0) {
-                continue;
-            }
-            double defective = attempted * defectRate;
-            work.addCompletedWork(phase, attempted - defective);
-            work.addUnknownRework(phase, defective);
-            capacity -= attempted;
-            if (capacity <= 0.0) {
-                break;
-            }
-        }
-    }
-
-    private void discoverDefects(double qaCapacity) {
-        double discoveryCapacity = qaCapacity * 50.0
-                * config.getQa().getBaseDetectionRate()
-                * config.getQa().getCapacityMultiplier()
-                * (1.0 - fatigue * 0.5);
-        double remainingDetection = Math.max(0.0, discoveryCapacity);
-        WorkState work = project.getWorkState();
-        for (ProjectPhase phase : ProjectPhase.values()) {
-            double found = Math.min(work.getUnknownRework(phase), remainingDetection);
-            if (found > 0.0) {
-                work.addUnknownRework(phase, -found);
-                work.addKnownRework(phase, found);
-                remainingDetection -= found;
-            }
-            if (remainingDetection <= 0.0) {
-                break;
-            }
-        }
+        return calculateProductivity().totalEffectiveCapacity();
     }
 
     private double developerCapacity() {
+        return calculateProductivity().developerEffectiveCapacity();
+    }
+
+    private ProductivityModel.ProductivityResult calculateProductivity() {
         MentoringModel.MentoringResult mentoring =
                 new MentoringModel().calculate(team, pendingHires.size(), config);
-        return new ProductivityModel().calculate(team, workIntensity, fatigue,
-                schedulePressure, config, mentoring).developerEffectiveCapacity();
+        return new ProductivityModel().calculate(
+                team, workIntensity, fatigue, schedulePressure, config, mentoring);
     }
 
     private Map<String, Integer> roleCounts() {
@@ -645,13 +652,35 @@ public class SimulationEngine {
     }
 
     private String qualityHealthLabel() {
-        if (project.getWorkState().totalKnownRework() == 0.0) {
-            return "Healthy";
+        return new QualityHealthModel().assess(
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalTestingBacklog(),
+                project.getWorkState().getTotalDefectsDiscoveredThisWeek(), config);
+    }
+
+    private Map<String, Double> phaseProgressForUi() {
+        Map<String, Double> progress = new java.util.LinkedHashMap<>();
+        project.getWorkState().phasePerceivedProgress()
+                .forEach((phase, value) -> progress.put(phase.name(), value));
+        return Map.copyOf(progress);
+    }
+
+    private double developerExperienceModifier() {
+        return roleExperienceModifier(Role.DEVELOPER);
+    }
+
+    private double roleExperienceModifier(Role role) {
+        List<Employee> employees = team.activeEmployees().stream()
+                .filter(employee -> employee.getRole() == role)
+                .toList();
+        if (employees.isEmpty()) {
+            return 1.0;
         }
-        if (project.getWorkState().totalKnownRework() < 100.0) {
-            return "Concerning";
-        }
-        return "At Risk";
+        return employees.stream().mapToDouble(employee -> switch (employee.getExperienceLevel()) {
+            case JUNIOR -> config.getQuality().getJuniorDefectMultiplier();
+            case MID_LEVEL -> config.getQuality().getMidDefectMultiplier();
+            case SENIOR -> config.getQuality().getSeniorDefectMultiplier();
+        }).average().orElse(1.0);
     }
 
     private String moraleHealthLabel() {

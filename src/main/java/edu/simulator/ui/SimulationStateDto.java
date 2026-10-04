@@ -1,6 +1,7 @@
 package edu.simulator.ui;
 
 import edu.simulator.simulation.WorkIntensity;
+import edu.simulator.model.TestingPriority;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -29,6 +30,12 @@ public class SimulationStateDto {
     private final List<String> recentMessages;
     private final WorkIntensity workIntensity;
     private final boolean complete;
+    private final Map<String, Double> phaseProgress;
+    private final double knownRework;
+    private final double defectsDiscoveredThisWeek;
+    private final String testingBacklogStatus;
+    private final TestingPriority testingPriority;
+    private final double qaCapacity;
 
     public SimulationStateDto(int week, long seed, int deadline, BigDecimal budget,
                               BigDecimal spent, BigDecimal remainingBudget,
@@ -37,7 +44,10 @@ public class SimulationStateDto {
                               Map<String, Integer> teamCounts, String scheduleHealth,
                               String budgetHealth, String qualityHealth, String moraleHealth,
                               List<String> recentMessages, WorkIntensity workIntensity,
-                              boolean complete) {
+                              boolean complete, Map<String, Double> phaseProgress,
+                              double knownRework, double defectsDiscoveredThisWeek,
+                              String testingBacklogStatus, TestingPriority testingPriority,
+                              double qaCapacity) {
         this.week = week;
         this.seed = Long.toString(seed);
         this.deadline = deadline;
@@ -56,6 +66,12 @@ public class SimulationStateDto {
         this.recentMessages = List.copyOf(recentMessages);
         this.workIntensity = workIntensity;
         this.complete = complete;
+        this.phaseProgress = Map.copyOf(phaseProgress);
+        this.knownRework = knownRework;
+        this.defectsDiscoveredThisWeek = defectsDiscoveredThisWeek;
+        this.testingBacklogStatus = testingBacklogStatus;
+        this.testingPriority = testingPriority;
+        this.qaCapacity = qaCapacity;
     }
 
     public int getWeek() {
@@ -129,4 +145,11 @@ public class SimulationStateDto {
     public boolean isComplete() {
         return complete;
     }
+
+    public Map<String, Double> getPhaseProgress() { return phaseProgress; }
+    public double getKnownRework() { return knownRework; }
+    public double getDefectsDiscoveredThisWeek() { return defectsDiscoveredThisWeek; }
+    public String getTestingBacklogStatus() { return testingBacklogStatus; }
+    public TestingPriority getTestingPriority() { return testingPriority; }
+    public double getQaCapacity() { return qaCapacity; }
 }
