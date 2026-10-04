@@ -1,3 +1,12 @@
+import {
+  applyInterfaceLayout,
+  defaultInterfaceLayout,
+  getInterfaceLayout,
+  layoutDescriptions,
+  setInterfaceLayout,
+  type InterfaceLayout
+} from './ui/layouts';
+
 type TeamCounts = Record<string, number>;
 
 type SetupState = {
@@ -262,6 +271,11 @@ const dashboardScreen = document.getElementById('dashboardScreen')!;
 const finalReportScreen = document.getElementById('finalReportScreen')!;
 let latestTeamManagement: TeamManagementState | undefined;
 let currentFinalReport: FinalReport | undefined;
+let currentSimulationState: SimulationState | undefined;
+let activeInterfaceLayout = defaultInterfaceLayout;
+let activeDashboardPage = 'Dashboard';
+let modalReturnFocus: HTMLElement | null = null;
+let activeModalId: string | null = null;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -278,6 +292,221 @@ function displayError(id: string, error: unknown): void {
 
 function parseResponse<T>(response: string): T {
   return JSON.parse(response) as T;
+}
+
+function openModal(modalId: string): void {
+  if (currentSimulationState?.pendingEvents.length && modalId !== 'eventDecisionModal') {
+    openModal('eventDecisionModal');
+    return;
+  }
+  const modal = document.getElementById(modalId);
+  if (!modal) {
+    return;
+  }
+  if (modalId === 'projectDecisionsModal' && currentSimulationState) {
+    syncProjectDecisionControls(currentSimulationState);
+    document.getElementById('projectDecisionsError')!.textContent = '';
+  }
+  if (activeModalId) {
+    document.getElementById(activeModalId)!.hidden = true;
+  } else {
+    modalReturnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  }
+
+  activeModalId = modalId;
+  modal.hidden = false;
+  document.getElementById('modalBackdrop')!.hidden = false;
+  const firstControl = modal.querySelector<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]'
+  );
+  firstControl?.focus();
+}
+
+function syncProjectDecisionControls(state: SimulationState): void {
+  (document.getElementById('workIntensity') as HTMLSelectElement).value = state.workIntensity;
+  (document.getElementById('testingPriority') as HTMLSelectElement).value = state.testingPriority;
+  (document.getElementById('concurrencyPolicy') as HTMLSelectElement).value = state.concurrencyPolicy;
+  (document.getElementById('engineeringApproach') as HTMLSelectElement).value =
+    state.engineeringApproach;
+  (document.getElementById('technicalDebtPriority') as HTMLSelectElement).value =
+    state.technicalDebtPriority;
+}
+
+function closeModal(force = false): void {
+  if (!activeModalId) {
+    return;
+  }
+  if (!force && currentSimulationState?.pendingEvents.length) {
+    openModal('eventDecisionModal');
+    return;
+  }
+  document.getElementById(activeModalId)!.hidden = true;
+  document.getElementById('modalBackdrop')!.hidden = true;
+  activeModalId = null;
+  const returnFocus = modalReturnFocus;
+  modalReturnFocus = null;
+  returnFocus?.focus();
+}
+
+function initializeModalBehavior(): void {
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const opener = target.closest<HTMLElement>('[data-open-modal]');
+    if (opener) {
+      openModal(opener.dataset.openModal!);
+      return;
+    }
+    if (target.closest('[data-close-modal]')) {
+      closeModal();
+      return;
+    }
+    if (target.id === 'modalBackdrop' && activeModalId !== 'eventDecisionModal') {
+      closeModal();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (!activeModalId) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const modal = document.getElementById(activeModalId)!;
+    const controls = Array.from(modal.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]'
+    ));
+    if (controls.length === 0) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
+const dashboardPages = ['Dashboard', 'Team', 'Project', 'Quality', 'Finance', 'Events', 'Analysis'];
+
+function pagesForLayout(layout: InterfaceLayout): Array<{ page: string; label: string }> {
+  if (layout === 'COMMAND_CENTER') {
+    return [
+      { page: 'Dashboard', label: 'Overview' },
+      { page: 'Team', label: 'Team' },
+      { page: 'Project', label: 'Project' },
+      { page: 'Quality', label: 'Quality' },
+      { page: 'Finance', label: 'Finances' },
+      { page: 'Analysis', label: 'Reports' }
+    ];
+  }
+  if (layout === 'TOP_NAVIGATION_MANAGER') {
+    return dashboardPages.filter((page) => page !== 'Events')
+      .map((page) => ({ page, label: page === 'Dashboard' ? 'Dashboard' : page }));
+  }
+  return dashboardPages.map((page) => ({ page, label: page }));
+}
+
+function setDashboardPage(page: string): void {
+  activeDashboardPage = page;
+  for (const section of document.querySelectorAll<HTMLElement>('.dashboard-page[data-page]')) {
+    section.hidden = section.dataset.page !== page;
+  }
+  for (const navigation of [
+    document.getElementById('dashboardNavigation'),
+    document.getElementById('topDashboardNavigation')
+  ]) {
+    if (!navigation) continue;
+    for (const button of navigation.querySelectorAll<HTMLButtonElement>('[data-page]')) {
+      if (button.dataset.page === page) {
+        button.setAttribute('aria-current', 'page');
+      } else {
+        button.removeAttribute('aria-current');
+      }
+    }
+  }
+}
+
+function renderLayoutNavigation(state = currentSimulationState): void {
+  const pages = pagesForLayout(activeInterfaceLayout);
+  if (!pages.some(({ page }) => page === activeDashboardPage)) {
+    activeDashboardPage = 'Dashboard';
+  }
+  const pendingCount = state?.pendingEvents.length ?? 0;
+  for (const hostId of ['dashboardNavigation', 'topDashboardNavigation']) {
+    const navigation = document.getElementById(hostId)!;
+    navigation.replaceChildren();
+    for (const { page, label } of pages) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.page = page;
+      button.textContent = label;
+      if (page === 'Events' && pendingCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'nav-badge';
+        badge.textContent = String(pendingCount);
+        badge.setAttribute('aria-label',
+          `${pendingCount} unresolved ${pendingCount === 1 ? 'event' : 'events'}`);
+        button.appendChild(badge);
+      }
+      button.addEventListener('click', () => setDashboardPage(page));
+      navigation.appendChild(button);
+    }
+  }
+  setDashboardPage(activeDashboardPage);
+}
+
+function renderLayoutPreference(layout: InterfaceLayout): void {
+  activeInterfaceLayout = layout;
+  const setupSelect = document.getElementById('interfaceLayout') as HTMLSelectElement;
+  setupSelect.value = layout;
+  document.getElementById('interfaceLayoutDescription')!.textContent = layoutDescriptions[layout];
+  const preview = document.getElementById('layoutPreview')!;
+  preview.dataset.layout = layout;
+  (document.getElementById('runtimeInterfaceLayout') as HTMLSelectElement).value = layout;
+  applyInterfaceLayout(dashboardScreen, layout);
+  renderLayoutNavigation();
+}
+
+function initializeLayoutPreference(): void {
+  activeInterfaceLayout = getInterfaceLayout();
+  const runtimeSelect = document.getElementById('runtimeInterfaceLayout') as HTMLSelectElement;
+  runtimeSelect.replaceChildren();
+  for (const [layout, description] of Object.entries(layoutDescriptions)) {
+    const option = document.createElement('option');
+    option.value = layout;
+    option.textContent = {
+      COMMAND_CENTER: 'Command Center',
+      TOP_NAVIGATION_MANAGER: 'Top Navigation Manager',
+      THREE_COLUMN_DESK: 'Three-Column Manager Desk',
+      SIDEBAR_MANAGER: 'Sidebar Manager',
+      HYBRID_SIDEBAR_MANAGER: 'Hybrid Sidebar Manager'
+    }[layout as InterfaceLayout];
+    option.title = description;
+    runtimeSelect.appendChild(option);
+  }
+  renderLayoutPreference(activeInterfaceLayout);
+  document.getElementById('interfaceLayout')!.addEventListener('change', (event) => {
+    renderLayoutPreference(setInterfaceLayout((event.currentTarget as HTMLSelectElement).value));
+  });
+  runtimeSelect.addEventListener('change', (event) => {
+    const layout = setInterfaceLayout((event.currentTarget as HTMLSelectElement).value);
+    closeModal();
+    renderLayoutPreference(layout);
+    const bridge = window.javaBridge;
+    if (bridge) {
+      try {
+        renderDashboard(parseResponse<SimulationState>(bridge.getSimulationState()));
+      } catch (error) {
+        displayError('dashboardError', error);
+      }
+    }
+  });
 }
 
 function renderSetup(state: SetupState): void {
@@ -302,23 +531,40 @@ function renderSetup(state: SetupState): void {
 }
 
 function renderDashboard(state: SimulationState): void {
+  currentSimulationState = state;
+  renderLayoutNavigation(state);
   document.getElementById('weekValue')!.textContent = String(state.week);
   document.getElementById('deadlineValue')!.textContent = String(state.deadline);
   document.getElementById('spentValue')!.textContent = formatCurrency(state.spent);
   document.getElementById('remainingValue')!.textContent = formatCurrency(state.remainingBudget);
+  document.getElementById('financeRemainingValue')!.textContent = formatCurrency(state.remainingBudget);
+  document.getElementById('financeStartingBudget')!.textContent = formatCurrency(state.budget);
   document.getElementById('burnRateValue')!.textContent = formatCurrency(state.burnRate);
   document.getElementById('forecastCostValue')!.textContent = formatCurrency(state.forecastCost);
   const progress = Math.max(0, Math.min(1, state.perceivedProgress));
   document.getElementById('progressValue')!.textContent = `${(progress * 100).toFixed(1)}%`;
+  document.getElementById('projectProgressValue')!.textContent = `${(progress * 100).toFixed(1)}%`;
+  document.getElementById('analysisProgress')!.textContent = `${(progress * 100).toFixed(1)}%`;
   document.getElementById('progressBar')!.setAttribute('style', `width: ${progress * 100}%`);
-  document.getElementById('forecastValue')!.textContent = state.estimatedCompletionWeek < 0
+  const forecastValue = state.estimatedCompletionWeek < 0
     ? 'Unavailable'
     : `Week ${state.estimatedCompletionWeek}`;
+  document.getElementById('forecastValue')!.textContent = forecastValue;
+  document.getElementById('forecastValueCard')!.textContent = forecastValue;
+  document.getElementById('analysisForecast')!.textContent = forecastValue;
   document.getElementById('scheduleHealth')!.textContent = state.scheduleHealth;
   document.getElementById('budgetHealth')!.textContent = state.budgetHealth;
   document.getElementById('qualityHealth')!.textContent = state.qualityHealth;
+  document.getElementById('qualityHealthCard')!.textContent = state.qualityHealth;
+  document.getElementById('qualityHealthPage')!.textContent = state.qualityHealth;
   document.getElementById('moraleHealth')!.textContent = state.moraleHealth;
+  document.getElementById('teamMoralePage')!.textContent = state.moraleHealth;
+  document.getElementById('analysisSchedule')!.textContent = state.scheduleHealth;
+  document.getElementById('analysisBudget')!.textContent = state.budgetHealth;
+  document.getElementById('analysisQuality')!.textContent = state.qualityHealth;
+  document.getElementById('analysisMorale')!.textContent = state.moraleHealth;
   document.getElementById('fatigueHealth')!.textContent = state.averageFatigueHealth;
+  document.getElementById('teamFatiguePage')!.textContent = state.averageFatigueHealth;
   document.getElementById('turnoverRisk')!.textContent = state.turnoverRisk;
   document.getElementById('departuresValue')!.textContent = String(state.employeesDepartedThisWeek);
   document.getElementById('overtimeCostValue')!.textContent = formatCurrency(state.overtimeCost);
@@ -328,6 +574,10 @@ function renderDashboard(state: SimulationState): void {
   document.getElementById('deferredFeaturesValue')!.textContent = String(state.deferredFeatureCount);
   document.getElementById('rejectedFeaturesValue')!.textContent = String(state.rejectedFeatureCount);
   document.getElementById('technicalDebtValue')!.textContent = state.technicalDebtHealth;
+  document.getElementById('projectDebtSummary')!.textContent = state.technicalDebtHealth;
+  document.getElementById('projectConcurrencySummary')!.textContent = state.concurrencyPolicy.replace(/_/g, ' ');
+  document.getElementById('projectEngineeringSummary')!.textContent = state.engineeringApproach.replace(/_/g, ' ');
+  document.getElementById('projectDebtPrioritySummary')!.textContent = state.technicalDebtPriority.replace(/_/g, ' ');
   const intensityDescriptions: Record<string, string> = {
     SUSTAINABLE: 'Sustainable effort with normal recovery and no overtime premium.',
     INCREASED: 'More short-term capacity; fatigue and payroll cost can increase.',
@@ -336,11 +586,40 @@ function renderDashboard(state: SimulationState): void {
   document.getElementById('workIntensityHelp')!.textContent =
     `${state.workIntensityHours}-hour workweek. ${intensityDescriptions[state.workIntensity] ?? ''}`;
   document.getElementById('knownReworkValue')!.textContent = String(Math.round(state.knownRework));
+  document.getElementById('currentWeekRework')!.textContent = String(Math.round(state.knownRework));
   document.getElementById('defectsFoundValue')!.textContent = String(Math.round(state.defectsDiscoveredThisWeek));
   document.getElementById('testingBacklogValue')!.textContent = state.testingBacklogStatus;
+  document.getElementById('currentWeekTesting')!.textContent = state.testingBacklogStatus;
+  document.getElementById('currentWeekCost')!.textContent = formatCurrency(state.burnRate);
   document.getElementById('qaCapacityValue')!.textContent = state.qaCapacity.toFixed(2);
+  document.getElementById('qualityTestingPriority')!.textContent = state.testingPriority;
+  document.getElementById('analysisProgress')!.textContent = `${(progress * 100).toFixed(1)}%`;
   document.getElementById('seedValue')!.textContent = `Seed: ${state.seed}`;
   (document.getElementById('testingPriority') as HTMLSelectElement).value = state.testingPriority;
+  document.getElementById('financePayrollValue')!.textContent = latestTeamManagement
+    ? formatCurrency(latestTeamManagement.weeklyPayroll)
+    : 'Loading';
+  document.getElementById('financeHiringValue')!.textContent = latestTeamManagement
+    ? formatCurrency(latestTeamManagement.totalHiringCosts)
+    : 'Loading';
+  document.getElementById('policySummary')!.replaceChildren();
+  document.getElementById('persistentPolicySummary')!.replaceChildren();
+  const policies = [
+    `Work ${state.workIntensity.replace(/_/g, ' ')}`,
+    `Testing ${state.testingPriority}`,
+    `Concurrency ${state.concurrencyPolicy}`,
+    `Engineering ${state.engineeringApproach.replace(/_/g, ' ')}`,
+    `Debt ${state.technicalDebtPriority.replace(/_/g, ' ')}`
+  ];
+  for (const hostId of ['policySummary', 'persistentPolicySummary']) {
+    const host = document.getElementById(hostId)!;
+    for (const policy of policies) {
+      const chip = document.createElement('span');
+      chip.className = 'policy-chip';
+      chip.textContent = policy;
+      host.appendChild(chip);
+    }
+  }
 
   const phaseNames: Record<string, string> = {
     REQUIREMENTS: 'Requirements',
@@ -349,9 +628,74 @@ function renderDashboard(state: SimulationState): void {
     TESTING: 'Testing',
     DEPLOYMENT: 'Deployment'
   };
-  const phases = document.getElementById('phaseProgressList')!;
-  phases.replaceChildren();
-  for (const [phase, progressValue] of Object.entries(state.phaseProgress)) {
+  for (const containerId of ['phaseProgressList', 'projectPhaseProgressList']) {
+    renderPhaseProgress(containerId, state.phaseProgress, phaseNames);
+  }
+
+  document.getElementById('devCount')!.textContent = String(state.teamCounts.DEVELOPER ?? 0);
+  document.getElementById('qaCount')!.textContent = String(state.teamCounts.QA_ENGINEER ?? 0);
+  document.getElementById('devopsCount')!.textContent = String(state.teamCounts.DEVOPS_ENGINEER ?? 0);
+  document.getElementById('pmCount')!.textContent = String(state.teamCounts.PROJECT_MANAGER ?? 0);
+  for (const countElement of document.querySelectorAll<HTMLElement>('[data-team-count]')) {
+    countElement.textContent = String(state.teamCounts[countElement.dataset.teamCount!] ?? 0);
+  }
+
+  const messages = document.getElementById('messagesList')!;
+  messages.replaceChildren();
+  for (const message of state.recentMessages) {
+    const item = document.createElement('li');
+    item.textContent = message;
+    messages.appendChild(item);
+  }
+  for (const hostId of ['qualityActivity', 'analysisActivity']) {
+    const activity = document.getElementById(hostId)!;
+    activity.replaceChildren();
+    for (const message of state.recentMessages) {
+      const item = document.createElement('li');
+      item.textContent = message;
+      activity.appendChild(item);
+    }
+  }
+  (document.getElementById('advanceButton') as HTMLButtonElement).disabled =
+    state.complete || state.pendingEvents.length > 0;
+  syncProjectDecisionControls(state);
+  renderProjectEvents(state);
+  const blocked = state.pendingEvents.length > 0;
+  document.getElementById('advanceBlockedMessage')!.hidden = !blocked;
+  (document.getElementById('eventActionButton') as HTMLButtonElement).hidden = !blocked;
+  (document.getElementById('openEventButton') as HTMLButtonElement).hidden = !blocked;
+  document.getElementById('pendingEventStatus')!.textContent = blocked
+    ? `${state.pendingEvents.length} unresolved event${state.pendingEvents.length === 1 ? '' : 's'} must be resolved before advancing.`
+    : 'No event is blocking project advancement.';
+  document.getElementById('acceptedFeaturesPage')!.textContent = String(state.acceptedFeatureCount);
+  document.getElementById('deferredFeaturesPage')!.textContent = String(state.deferredFeatureCount);
+  document.getElementById('rejectedFeaturesPage')!.textContent = String(state.rejectedFeatureCount);
+  if (blocked) {
+    openModal('eventDecisionModal');
+  } else if (activeModalId === 'eventDecisionModal') {
+    closeModal(true);
+  }
+  refreshTeamManagement();
+  if (state.complete) {
+    closeModal(true);
+    dashboardScreen.hidden = true;
+    finalReportScreen.hidden = false;
+    try {
+      renderFinalReport(parseResponse<FinalReport>(window.javaBridge!.getFinalReport()));
+    } catch (error) {
+      displayError('reportError', error);
+    }
+  }
+}
+
+function renderPhaseProgress(
+  containerId: string,
+  phaseProgress: Record<string, number>,
+  phaseNames: Record<string, string>
+): void {
+  const container = document.getElementById(containerId)!;
+  container.replaceChildren();
+  for (const [phase, progressValue] of Object.entries(phaseProgress)) {
     const progress = Math.max(0, Math.min(1, progressValue));
     const row = document.createElement('div');
     row.className = 'phase-progress-row';
@@ -366,39 +710,7 @@ function renderDashboard(state: SimulationState): void {
     const percentage = document.createElement('strong');
     percentage.textContent = `${(progress * 100).toFixed(0)}%`;
     row.append(label, track, percentage);
-    phases.appendChild(row);
-  }
-
-  document.getElementById('devCount')!.textContent = String(state.teamCounts.DEVELOPER ?? 0);
-  document.getElementById('qaCount')!.textContent = String(state.teamCounts.QA_ENGINEER ?? 0);
-  document.getElementById('devopsCount')!.textContent = String(state.teamCounts.DEVOPS_ENGINEER ?? 0);
-  document.getElementById('pmCount')!.textContent = String(state.teamCounts.PROJECT_MANAGER ?? 0);
-
-  const messages = document.getElementById('messagesList')!;
-  messages.replaceChildren();
-  for (const message of state.recentMessages) {
-    const item = document.createElement('li');
-    item.textContent = message;
-    messages.appendChild(item);
-  }
-  (document.getElementById('advanceButton') as HTMLButtonElement).disabled = state.complete;
-  (document.getElementById('hireButton') as HTMLButtonElement).disabled = state.complete;
-  (document.getElementById('workIntensity') as HTMLSelectElement).value = state.workIntensity;
-  (document.getElementById('concurrencyPolicy') as HTMLSelectElement).value = state.concurrencyPolicy;
-  (document.getElementById('engineeringApproach') as HTMLSelectElement).value = state.engineeringApproach;
-  (document.getElementById('technicalDebtPriority') as HTMLSelectElement).value = state.technicalDebtPriority;
-  renderProjectEvents(state);
-  (document.getElementById('advanceButton') as HTMLButtonElement).disabled =
-    state.complete || state.pendingEvents.length > 0;
-  refreshTeamManagement();
-  if (state.complete) {
-    dashboardScreen.hidden = true;
-    finalReportScreen.hidden = false;
-    try {
-      renderFinalReport(parseResponse<FinalReport>(window.javaBridge!.getFinalReport()));
-    } catch (error) {
-      displayError('reportError', error);
-    }
+    container.appendChild(row);
   }
 }
 
@@ -804,7 +1116,6 @@ function percent(value: number): string {
 function renderProjectEvents(state: SimulationState): void {
   const pendingEvents = document.getElementById('pendingEvents')!;
   pendingEvents.replaceChildren();
-  pendingEvents.hidden = state.pendingEvents.length === 0;
   for (const event of state.pendingEvents) {
     const card = document.createElement('article');
     card.className = 'event-card';
@@ -838,28 +1149,6 @@ function renderProjectEvents(state: SimulationState): void {
   }
 }
 
-function updateProjectPolicy(
-  kind: 'concurrency' | 'engineering' | 'debt',
-  value: string
-): void {
-  const bridge = window.javaBridge;
-  if (!bridge) {
-    displayError('dashboardError', 'The desktop bridge is not available.');
-    return;
-  }
-  try {
-    const update = {
-      concurrency: bridge.setConcurrencyPolicy,
-      engineering: bridge.setEngineeringApproach,
-      debt: bridge.setTechnicalDebtPriority
-    }[kind];
-    renderDashboard(parseResponse<SimulationState>(update.call(bridge, value)));
-    document.getElementById('dashboardError')!.textContent = '';
-  } catch (error) {
-    displayError('dashboardError', error);
-  }
-}
-
 function resolveProjectEvent(eventId: string, optionId: string): void {
   const bridge = window.javaBridge;
   if (!bridge) {
@@ -881,6 +1170,8 @@ function renderTeamManagement(state: TeamManagementState): void {
   document.getElementById('totalHiringCost')!.textContent = formatCurrency(state.totalHiringCosts);
   document.getElementById('mentoringLoad')!.textContent = state.mentoringLoad;
   document.getElementById('coordinationHealth')!.textContent = state.coordinationHealth;
+  document.getElementById('financePayrollValue')!.textContent = formatCurrency(state.weeklyPayroll);
+  document.getElementById('financeHiringValue')!.textContent = formatCurrency(state.totalHiringCosts);
   document.getElementById('staffingSummary')!.textContent =
     `${state.activeEmployees} active; ${state.onboardingEmployees} onboarding; ` +
     `${state.pendingHires} pending hire${state.pendingHires === 1 ? '' : 's'}.`;
@@ -895,6 +1186,37 @@ function renderTeamManagement(state: TeamManagementState): void {
     MID_LEVEL: 'Mid-level',
     SENIOR: 'Senior'
   };
+  const modalSummary = document.getElementById('manageTeamSummary')!;
+  modalSummary.replaceChildren();
+  const modalMetrics = [
+    ['Active staff', String(state.activeEmployees)],
+    ['Onboarding', String(state.onboardingEmployees)],
+    ['Pending hires', String(state.pendingHires)],
+    ['Weekly payroll', formatCurrency(state.weeklyPayroll)]
+  ];
+  for (const [labelText, valueText] of modalMetrics) {
+    const metric = document.createElement('div');
+    metric.className = 'metric';
+    const label = document.createElement('div');
+    label.className = 'metric-label';
+    label.textContent = labelText;
+    const value = document.createElement('div');
+    value.className = 'metric-value';
+    value.textContent = valueText;
+    metric.append(label, value);
+    modalSummary.appendChild(metric);
+  }
+  document.getElementById('manageTeamRoster')!.textContent =
+    `Active by role: ${Object.entries(state.experienceCounts).map(([role, levels]) =>
+      `${roleLabels[role] ?? role} ${Object.values(levels).reduce((total, count) => total + count, 0)}`
+    ).join(', ')}. Mentoring load: ${state.mentoringLoad}. Coordination: ${state.coordinationHealth}. ` +
+    `Onboarding: ${state.onboarding.map((employee) =>
+      `${experienceLabels[employee.experience] ?? employee.experience} ${roleLabels[employee.role] ?? employee.role}`
+    ).join(', ') || 'none'}. ` +
+    `Pending hires: ${state.pending.map((hire) => {
+      const weeks = hire.weeksUntilStart;
+      return `${experienceLabels[hire.experience] ?? hire.experience} ${roleLabels[hire.role] ?? hire.role}, joins in ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`;
+    }).join('; ') || 'none'}.`;
   const experienceList = document.getElementById('experienceCounts')!;
   experienceList.replaceChildren();
   for (const [role, levels] of Object.entries(state.experienceCounts)) {
@@ -960,7 +1282,7 @@ function updateHirePreview(): void {
 function hireEmployees(): void {
   const bridge = window.javaBridge;
   if (!bridge) {
-    displayError('dashboardError', 'The desktop bridge is not available.');
+    displayError('hireError', 'The desktop bridge is not available.');
     return;
   }
   try {
@@ -969,8 +1291,35 @@ function hireEmployees(): void {
     const quantity = Number((document.getElementById('hireQuantity') as HTMLSelectElement).value);
     renderDashboard(parseResponse<SimulationState>(bridge.hireEmployee(role, experience, quantity)));
     document.getElementById('dashboardError')!.textContent = '';
+    document.getElementById('hireError')!.textContent = '';
+    closeModal();
   } catch (error) {
-    displayError('dashboardError', error);
+    displayError('hireError', error);
+  }
+}
+
+function applyProjectDecisions(): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('projectDecisionsError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    let response = bridge.setWorkIntensity(
+      (document.getElementById('workIntensity') as HTMLSelectElement).value);
+    response = bridge.setTestingPriority(
+      (document.getElementById('testingPriority') as HTMLSelectElement).value);
+    response = bridge.setConcurrencyPolicy(
+      (document.getElementById('concurrencyPolicy') as HTMLSelectElement).value);
+    response = bridge.setEngineeringApproach(
+      (document.getElementById('engineeringApproach') as HTMLSelectElement).value);
+    response = bridge.setTechnicalDebtPriority(
+      (document.getElementById('technicalDebtPriority') as HTMLSelectElement).value);
+    renderDashboard(parseResponse<SimulationState>(response));
+    document.getElementById('projectDecisionsError')!.textContent = '';
+    closeModal();
+  } catch (error) {
+    displayError('projectDecisionsError', error);
   }
 }
 
@@ -1016,9 +1365,13 @@ function startProject(): void {
     const scenarioId = parseResponse<SetupState>(bridge.getSetupState()).scenarioId;
     const seed = (document.getElementById('seedInput') as HTMLInputElement).value.trim();
     const state = parseResponse<SimulationState>(bridge.startSimulation(scenarioId, seed));
+    activeDashboardPage = 'Dashboard';
+    currentSimulationState = undefined;
     setupScreen.hidden = true;
     dashboardScreen.hidden = false;
     finalReportScreen.hidden = true;
+    document.querySelector<HTMLElement>('.app')!.classList.add('simulation-active');
+    document.getElementById('appMasthead')!.hidden = true;
     currentFinalReport = undefined;
     document.getElementById('dashboardError')!.textContent = '';
     renderDashboard(state);
@@ -1041,34 +1394,6 @@ function advanceWeek(): void {
   }
 }
 
-function updateWorkIntensity(value: string): void {
-  const bridge = window.javaBridge;
-  if (!bridge) {
-    displayError('dashboardError', 'The desktop bridge is not available.');
-    return;
-  }
-  try {
-    renderDashboard(parseResponse<SimulationState>(bridge.setWorkIntensity(value)));
-    document.getElementById('dashboardError')!.textContent = '';
-  } catch (error) {
-    displayError('dashboardError', error);
-  }
-}
-
-function updateTestingPriority(value: string): void {
-  const bridge = window.javaBridge;
-  if (!bridge) {
-    displayError('dashboardError', 'The desktop bridge is not available.');
-    return;
-  }
-  try {
-    renderDashboard(parseResponse<SimulationState>(bridge.setTestingPriority(value)));
-    document.getElementById('dashboardError')!.textContent = '';
-  } catch (error) {
-    displayError('dashboardError', error);
-  }
-}
-
 function runAgainWithSameSeed(): void {
   const bridge = window.javaBridge;
   if (!bridge) {
@@ -1077,9 +1402,12 @@ function runAgainWithSameSeed(): void {
   }
   try {
     const state = parseResponse<SimulationState>(bridge.runAgainWithSameSeed());
+    activeDashboardPage = 'Dashboard';
     finalReportScreen.hidden = true;
     setupScreen.hidden = true;
     dashboardScreen.hidden = false;
+    document.querySelector<HTMLElement>('.app')!.classList.add('simulation-active');
+    document.getElementById('appMasthead')!.hidden = true;
     currentFinalReport = undefined;
     renderDashboard(state);
   } catch (error) {
@@ -1098,7 +1426,11 @@ function startNewSimulation(): void {
     finalReportScreen.hidden = true;
     dashboardScreen.hidden = true;
     setupScreen.hidden = false;
+    document.querySelector<HTMLElement>('.app')!.classList.remove('simulation-active');
+    document.getElementById('appMasthead')!.hidden = false;
     currentFinalReport = undefined;
+    currentSimulationState = undefined;
+    activeDashboardPage = 'Dashboard';
     (document.getElementById('seedInput') as HTMLInputElement).value = '';
     renderSetup(setup);
   } catch (error) {
@@ -1134,23 +1466,13 @@ async function copyRunSeed(): Promise<void> {
   }
 }
 
+initializeLayoutPreference();
+initializeModalBehavior();
 document.getElementById('startButton')!.addEventListener('click', startProject);
 document.getElementById('advanceButton')!.addEventListener('click', advanceWeek);
-document.getElementById('workIntensity')!.addEventListener('change', (event) => {
-  updateWorkIntensity((event.currentTarget as HTMLSelectElement).value);
-});
-document.getElementById('testingPriority')!.addEventListener('change', (event) => {
-  updateTestingPriority((event.currentTarget as HTMLSelectElement).value);
-});
-document.getElementById('concurrencyPolicy')!.addEventListener('change', (event) => {
-  updateProjectPolicy('concurrency', (event.currentTarget as HTMLSelectElement).value);
-});
-document.getElementById('engineeringApproach')!.addEventListener('change', (event) => {
-  updateProjectPolicy('engineering', (event.currentTarget as HTMLSelectElement).value);
-});
-document.getElementById('technicalDebtPriority')!.addEventListener('change', (event) => {
-  updateProjectPolicy('debt', (event.currentTarget as HTMLSelectElement).value);
-});
+document.getElementById('applyProjectDecisionsButton')!.addEventListener('click', applyProjectDecisions);
+document.getElementById('eventActionButton')!.addEventListener('click', () => openModal('eventDecisionModal'));
+document.getElementById('openEventButton')!.addEventListener('click', () => openModal('eventDecisionModal'));
 document.getElementById('hireButton')!.addEventListener('click', hireEmployees);
 document.getElementById('copySeedButton')!.addEventListener('click', () => {
   void copyRunSeed();
@@ -1159,6 +1481,12 @@ document.getElementById('replayButton')!.addEventListener('click', runAgainWithS
 document.getElementById('newRunButton')!.addEventListener('click', startNewSimulation);
 for (const id of ['hireRole', 'hireExperience', 'hireQuantity']) {
   document.getElementById(id)!.addEventListener('change', updateHirePreview);
+}
+for (const id of ['workIntensity', 'testingPriority', 'concurrencyPolicy',
+  'engineeringApproach', 'technicalDebtPriority']) {
+  document.getElementById(id)!.addEventListener('change', () => {
+    document.getElementById('projectDecisionsError')!.textContent = '';
+  });
 }
 
 for (const row of roleRows) {

@@ -141,6 +141,12 @@ Leave the seed field blank to have Java generate and display a seed, or enter a 
 
 Java is authoritative for setup, team counts, staffing options, project state, event rules, policy effects, cost calculations, and simulation outcomes. TypeScript renders DTOs and sends requested actions through the narrow JSON-based Java bridge; it does not maintain an independent simulation state.
 
+## Interface layouts
+
+Before starting, choose one of five presentation layouts: Command Center, Top Navigation Manager, Three-Column Manager Desk, Sidebar Manager, or Hybrid Sidebar Manager. Hybrid Sidebar Manager is the default. The selected layout is saved locally under `spms.interfaceLayout` when WebView storage is available; otherwise it lasts for the current frontend session. It is a UI preference only and does not change the scenario, seed, decisions, simulation state, or score. The layout may also be changed while a run is active.
+
+Each layout uses the same Java-backed state, category pages, action handlers, and shared modals. Active-play analysis remains limited to manager-visible information, and blocking event decisions cannot be dismissed. The final report remains the same post-run report in every layout.
+
 ## Adding a Scenario
 
 1. Create a JSON file under src/main/resources/scenarios.
