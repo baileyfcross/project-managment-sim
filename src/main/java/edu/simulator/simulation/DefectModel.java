@@ -25,6 +25,19 @@ public class DefectModel {
                                     double coordinationPenalty, double schedulePressure,
                                     WorkIntensity intensity, WorkState work,
                                     SimulationConfiguration config) {
+        return defectProbability(phase, experienceModifier, onboardingDeficit, mentoringCoverage,
+                fatigue, coordinationPenalty, schedulePressure, intensity, work,
+                new TechnicalDebtModel().defectModifier(0.0, config.getPhaseFive()),
+                1.0, 0.0, config);
+    }
+
+    public double defectProbability(ProjectPhase phase, double experienceModifier,
+                                    double onboardingDeficit, double mentoringCoverage, double fatigue,
+                                    double coordinationPenalty, double schedulePressure,
+                                    WorkIntensity intensity, WorkState work,
+                                    double technicalDebtModifier, double engineeringModifier,
+                                    double dependencyUncertainty,
+                                    SimulationConfiguration config) {
         double propagation = 0.0;
         for (ProjectPhase upstream : ProjectPhase.values()) {
             if (upstream == phase) {
@@ -49,6 +62,10 @@ public class DefectModel {
                 * (1.0 + Math.max(0.0, coordinationPenalty) * 2.5)
                 * (1.0 + Math.max(0.0, schedulePressure) * 1.4)
                 * intensityModifier * mentoringModifier
+                * Math.max(0.0, technicalDebtModifier)
+                * Math.max(0.0, engineeringModifier)
+                * new ConcurrencyModel().defectModifier(dependencyUncertainty,
+                        config.getPhaseFive())
                 * (1.0 + propagation * config.getQuality().getPropagationFactor());
         return clamp(probability, config.getQuality().getDefectCap());
     }

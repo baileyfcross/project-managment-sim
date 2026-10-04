@@ -4,19 +4,26 @@ import edu.simulator.configuration.ScenarioConfiguration;
 import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.decision.HiringDecision;
 import edu.simulator.event.EventType;
+import edu.simulator.event.EventDecision;
+import edu.simulator.event.EventResult;
 import edu.simulator.event.ProjectEvent;
 import edu.simulator.model.Employee;
 import edu.simulator.model.ExperienceLevel;
+import edu.simulator.model.ConcurrencyPolicy;
+import edu.simulator.model.EngineeringApproach;
+import edu.simulator.model.PhaseFiveSnapshot;
 import edu.simulator.model.Project;
 import edu.simulator.model.ProjectPhase;
 import edu.simulator.model.PendingHire;
 import edu.simulator.model.Role;
 import edu.simulator.model.Team;
+import edu.simulator.model.TechnicalDebtPriority;
 import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WeeklySnapshot;
 import edu.simulator.model.WorkIntensity;
 import edu.simulator.report.FinalProjectReport;
 import edu.simulator.ui.SimulationStateDto;
+import edu.simulator.ui.ProjectEventDto;
 import edu.simulator.ui.TeamManagementDto;
 
 import java.math.BigDecimal;
@@ -38,11 +45,27 @@ public class SimulationEngine {
     private final Team team;
     private final List<WeeklySnapshot> history = new ArrayList<>();
     private final List<ProjectEvent> events = new ArrayList<>();
+    private final EventGenerator eventGenerator = new EventGenerator();
+    private final List<EventDecision> eventDecisions = new ArrayList<>();
     private final List<PendingHire> pendingHires = new ArrayList<>();
     private final List<String> messages = new ArrayList<>();
+    private final List<String> acceptedFeatures = new ArrayList<>();
+    private final List<String> deferredFeatures = new ArrayList<>();
+    private final List<String> rejectedFeatures = new ArrayList<>();
     private double schedulePressure = 0.15;
     private WorkIntensity workIntensity = WorkIntensity.SUSTAINABLE;
     private TestingPriority testingPriority = TestingPriority.NORMAL;
+    private ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.MODERATE;
+    private EngineeringApproach engineeringApproach = EngineeringApproach.BALANCED;
+    private TechnicalDebtPriority technicalDebtPriority = TechnicalDebtPriority.NORMAL;
+    private int lastEventWeek;
+    private int eventSequence;
+    private double outOfSequenceWorkThisWeek;
+    private double dependencyUncertaintyThisWeek;
+    private double scopeChangeReworkThisWeek;
+    private double eventCreatedWorkThisWeek;
+    private final List<String> eventsGeneratedThisWeek = new ArrayList<>();
+    private final List<String> eventDecisionsThisWeek = new ArrayList<>();
     private boolean complete;
     private int totalTurnover;
     private int defectsReleased;
@@ -74,6 +97,7 @@ public class SimulationEngine {
         for (Map.Entry<String, Double> entry : scenario.getScope().entrySet()) {
             ProjectPhase phase = phaseFromKey(entry.getKey());
             project.getWorkState().setTotalWork(phase, entry.getValue());
+            project.recordOriginalScope(phase, entry.getValue());
         }
     }
 
@@ -132,6 +156,21 @@ public class SimulationEngine {
         this.testingPriority = testingPriority;
     }
 
+    public void setConcurrencyPolicy(ConcurrencyPolicy value) {
+        if (value == null) throw new IllegalArgumentException("Concurrency policy is required");
+        concurrencyPolicy = value;
+    }
+
+    public void setEngineeringApproach(EngineeringApproach value) {
+        if (value == null) throw new IllegalArgumentException("Engineering approach is required");
+        engineeringApproach = value;
+    }
+
+    public void setTechnicalDebtPriority(TechnicalDebtPriority value) {
+        if (value == null) throw new IllegalArgumentException("Technical debt priority is required");
+        technicalDebtPriority = value;
+    }
+
     public Project getProject() {
         return project;
     }
@@ -158,6 +197,149 @@ public class SimulationEngine {
 
     public List<ProjectEvent> getEvents() {
         return List.copyOf(events);
+    }
+
+    public List<EventDecision> getEventDecisions() {
+        return List.copyOf(eventDecisions);
+    }
+
+    public List<ProjectEvent> getPendingEvents() {
+        return events.stream().filter(ProjectEvent::isBlocking).toList();
+    }
+
+    public void resolveEvent(String eventId, String optionId) {
+        if (complete) {
+            throw new IllegalStateException("Cannot resolve project events after the project has ended");
+        }
+        ProjectEvent event = events.stream().filter(candidate -> candidate.getId().equals(eventId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("Unknown project event: " + eventId));
+        if (!event.isBlocking()) {
+            throw new IllegalStateException("Project event " + eventId + " is already resolved");
+        }
+        var selected = event.getOptions().stream()
+                .filter(option -> option.id().equals(optionId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Choose one of the available event options"));
+        String result = applyEventDecision(event, optionId);
+        Map<String, Double> effects = Map.of(
+                "eventCreatedWork", eventCreatedWorkThisWeek,
+                "scopeChangeRework", scopeChangeReworkThisWeek,
+                "technicalDebt", project.getTechnicalDebt());
+        event.resolve(optionId, new EventResult(
+                result, project.getCurrentWeek(), effects));
+        EventDecision decision = new EventDecision(
+                event.getId(), optionId, selected.label(), project.getCurrentWeek(), result);
+        eventDecisions.add(decision);
+        eventDecisionsThisWeek.add(event.getId() + ": " + selected.label());
+        addMessage(result);
+        recalculateSchedulePressure();
+    }
+
+    private String applyEventDecision(ProjectEvent event, String optionId) {
+        if (event.getType() == EventType.CUSTOMER_FEATURE_REQUEST) {
+            return switch (optionId) {
+                case "ACCEPT" -> {
+                    ScopeChangeModel.ScopeChangeResult change = new ScopeChangeModel().acceptFeature(
+                            project, event.getFeatureWork(), config.getPhaseFive());
+                    acceptedFeatures.add(event.getFeatureName());
+                    scopeChangeReworkThisWeek += change.reworkGenerated();
+                    eventCreatedWorkThisWeek += change.addedScope() + change.reworkGenerated();
+                    yield "Feature accepted. Project scope increased.";
+                }
+                case "DEFER" -> {
+                    deferredFeatures.add(event.getFeatureName());
+                    yield "Feature deferred to a future release.";
+                }
+                case "REJECT" -> {
+                    rejectedFeatures.add(event.getFeatureName());
+                    yield "Feature request rejected. Current project work is unchanged.";
+                }
+                default -> throw new IllegalArgumentException("Unsupported feature request choice");
+            };
+        }
+        switch (event.getType()) {
+            case REQUIREMENTS_MISUNDERSTANDING -> {
+                if (optionId.equals("REVISE")) {
+                    double created = addEventRework(ProjectPhase.REQUIREMENTS,
+                            ProjectPhase.DESIGN, ProjectPhase.DEVELOPMENT);
+                    eventCreatedWorkThisWeek += created;
+                    return "Requirements and dependent work will be revised.";
+                }
+                increaseTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                return "The current direction remains, with additional technical risk.";
+            }
+            case DEPENDENCY_PROBLEM -> {
+                if (optionId.equals("REFACTOR")) {
+                    double created = addEventRework(ProjectPhase.DESIGN, ProjectPhase.DEVELOPMENT);
+                    eventCreatedWorkThisWeek += created;
+                    reduceTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                    return "The team will refactor around the dependency.";
+                }
+                increaseTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                return "A workaround keeps delivery moving but adds technical debt.";
+            }
+            case FAILED_INTEGRATION -> {
+                if (optionId.equals("STABILIZE")) {
+                    double created = addEventRework(ProjectPhase.DEVELOPMENT, ProjectPhase.DEPLOYMENT);
+                    eventCreatedWorkThisWeek += created;
+                    return "Integration stabilization and regression work were added.";
+                }
+                increaseTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                return "Integration work was deferred, increasing future technical risk.";
+            }
+            case SECURITY_VULNERABILITY -> {
+                if (optionId.equals("FIX")) {
+                    double created = addEventRework(ProjectPhase.DEVELOPMENT, ProjectPhase.TESTING);
+                    eventCreatedWorkThisWeek += created;
+                    return "Security fixes and verification work were added.";
+                }
+                increaseTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement() * 0.5);
+                return "A temporary workaround was selected; follow-up cleanup remains.";
+            }
+            case TECHNICAL_DEBT_ISSUE -> {
+                if (optionId.equals("REFACTOR")) {
+                    double created = addEventRework(ProjectPhase.DEVELOPMENT);
+                    eventCreatedWorkThisWeek += created;
+                    reduceTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                    return "Refactoring work was scheduled to address technical debt.";
+                }
+                increaseTechnicalDebt(config.getPhaseFive().getEvents().getDebtIssueIncrement());
+                return "Cleanup was deferred; future changes may take longer.";
+            }
+            default -> throw new IllegalArgumentException("Unsupported project event choice");
+        }
+    }
+
+    private double addEventRework(ProjectPhase... phases) {
+        double created = 0.0;
+        for (ProjectPhase phase : phases) {
+            double amount = project.getWorkState().getTotalWork(phase)
+                    * config.getPhaseFive().getEvents().getEventWorkFraction();
+            project.getWorkState().addKnownRework(phase, amount);
+            created += amount;
+        }
+        if (created > 0.0) {
+            project.getWorkState().addTestableWork(ProjectPhase.TESTING,
+                    created * config.getPhaseFive().getScope().getRegressionDemandFactor());
+        }
+        return created;
+    }
+
+    private void increaseTechnicalDebt(double amount) {
+        project.setTechnicalDebt(project.getTechnicalDebt() + amount);
+    }
+
+    private void reduceTechnicalDebt(double amount) {
+        project.setTechnicalDebt(Math.max(0.0, project.getTechnicalDebt() - amount));
+    }
+
+    private void recalculateSchedulePressure() {
+        ProductivityModel.ProductivityResult productivity = calculateProductivity();
+        schedulePressure = new SchedulePressureModel().calculate(
+                project, adjustedDeveloperCapacity(productivity),
+                productivity.qaEffectiveCapacity() * config.getTesting().capacityFactor(testingPriority),
+                productivity.devopsEffectiveCapacity(),
+                project.getWorkState().totalKnownRework(),
+                project.getWorkState().getTotalTestingBacklog(), config);
     }
 
     public List<PendingHire> getPendingHires() {
@@ -228,8 +410,9 @@ public class SimulationEngine {
         BigDecimal payroll = costModel.calculateWeeklyPayroll(team, config);
         BigDecimal forecastOvertime = costModel.calculateOvertimeCost(payroll, workIntensity, config);
         ProductivityModel.ProductivityResult productivity = calculateProductivity();
+        double developerCapacity = adjustedDeveloperCapacity(productivity);
         int estimatedCompletionWeek = new ForecastModel().estimateCompletionWeek(
-                project, productivity.developerEffectiveCapacity(),
+                project, developerCapacity,
                 productivity.qaEffectiveCapacity()
                         * config.getTesting().capacityFactor(testingPriority),
                 productivity.devopsEffectiveCapacity(),
@@ -277,7 +460,17 @@ public class SimulationEngine {
                         fatigueHealthLabel(),
                         new TurnoverModel().riskCategory(team, schedulePressure, config),
                         departuresThisWeek,
-                        lastOvertimeCost
+                        lastOvertimeCost,
+                        project.getScopeExpansionRatio(),
+                        acceptedFeatures.size(),
+                        deferredFeatures.size(),
+                        rejectedFeatures.size(),
+                        new TechnicalDebtModel().category(project.getTechnicalDebt()),
+                        concurrencyPolicy,
+                        engineeringApproach,
+                        technicalDebtPriority,
+                        eventDtos(getPendingEvents()),
+                        eventDtos(events)
         );
     }
 
@@ -344,10 +537,15 @@ public class SimulationEngine {
         if (complete) {
             return;
         }
+        if (!getPendingEvents().isEmpty()) {
+            throw new IllegalStateException("Resolve pending project events before advancing the week");
+        }
 
         int simulatedWeek = project.getCurrentWeek() + 1;
         project.setCurrentWeek(simulatedWeek);
         project.getWorkState().beginWeek();
+        outOfSequenceWorkThisWeek = 0.0;
+        dependencyUncertaintyThisWeek = 0.0;
         departuresThisWeek = 0;
         String previousFatigueCategory = new FatigueModel().category(averageFatigue());
         String previousMoraleCategory = moraleHealthLabel();
@@ -373,7 +571,7 @@ public class SimulationEngine {
         ProductivityModel.ProductivityResult productivity = new ProductivityModel().calculateForTeam(
                 team, workIntensity, schedulePressure, config, mentoring);
         double developerWorkCapacity =
-                productivity.developerEffectiveCapacity() * ProductivityModel.WORK_UNITS_PER_CAPACITY;
+                adjustedDeveloperCapacity(productivity) * ProductivityModel.WORK_UNITS_PER_CAPACITY;
         int workingTeamSize = team.totalCount();
         WorkAllocationModel.Allocation allocation = new WorkAllocationModel().allocate(
                 developerWorkCapacity, project.getWorkState().totalKnownRework(), config);
@@ -382,19 +580,43 @@ public class SimulationEngine {
                 ProjectPhase.DEVELOPMENT, developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
                 mentoring.coverage(), averageFatigue(Role.DEVELOPER), coordinationPenalty, schedulePressure,
                 workIntensity, project.getWorkState(), config);
+        TechnicalDebtModel technicalDebtModel = new TechnicalDebtModel();
+        double debtDefectModifier = technicalDebtModel.defectModifier(
+                project.getTechnicalDebt(), config.getPhaseFive());
+        double engineeringDefectModifier = config.getPhaseFive().getEngineeringApproach()
+                .defectMultiplier(engineeringApproach);
+        double reworkDefectRate = developerDefectRate * debtDefectModifier
+                * engineeringDefectModifier
+                * technicalDebtModel.reworkModifier(project.getTechnicalDebt(), config.getPhaseFive());
         ReworkModel.ReworkResult rework = new ReworkModel().perform(
-                project.getWorkState(), allocation.reworkCapacity(), developerDefectRate, config, random);
-        new NewWorkModel().performDevelopment(
-                project.getWorkState(), allocation.newWorkCapacity() + rework.unusedCapacity(),
+                project.getWorkState(), allocation.reworkCapacity(), reworkDefectRate, config, random);
+        double availableForNewWork = allocation.newWorkCapacity() + rework.unusedCapacity();
+        TechnicalDebtModel.PayDownPlan debtPayDownPlan = technicalDebtModel.planPayDown(
+                project, availableForNewWork, technicalDebtPriority, config.getPhaseFive());
+        double debtPayDownWork = debtPayDownPlan.capacitySpent();
+        if (debtPayDownWork > 0.0) {
+            addMessage("The team spent development capacity reducing technical debt.");
+            availableForNewWork = Math.max(0.0, availableForNewWork - debtPayDownWork);
+        }
+        NewWorkModel.NewWorkResult development = new NewWorkModel().performDevelopment(
+                project.getWorkState(), availableForNewWork,
                 developerExperienceModifier(), averageDeveloperOnboardingDeficit(),
                 mentoring.coverage(), averageFatigue(Role.DEVELOPER), coordinationPenalty, schedulePressure,
-                workIntensity, config, random);
-        new NewWorkModel().performDeployment(
+                workIntensity, concurrencyPolicy, debtDefectModifier, engineeringDefectModifier,
+                coordinationPenalty, config, random);
+        NewWorkModel.NewWorkResult deployment = new NewWorkModel().performDeployment(
                 project.getWorkState(),
                 productivity.devopsEffectiveCapacity() * ProductivityModel.WORK_UNITS_PER_CAPACITY,
                 roleExperienceModifier(Role.DEVOPS_ENGINEER), mentoring.coverage(),
                 averageFatigue(Role.DEVOPS_ENGINEER), coordinationPenalty, schedulePressure,
-                workIntensity, config, random);
+                workIntensity, concurrencyPolicy, coordinationPenalty, debtDefectModifier,
+                config, random);
+        outOfSequenceWorkThisWeek = Math.min(developerWorkCapacity + productivity.devopsEffectiveCapacity()
+                        * ProductivityModel.WORK_UNITS_PER_CAPACITY,
+                development.outOfSequenceWork() + deployment.outOfSequenceWork());
+        double attempted = development.totalAttempted() + deployment.totalAttempted();
+        dependencyUncertaintyThisWeek = attempted <= 0.0 ? 0.0
+                : Math.min(1.0, outOfSequenceWorkThisWeek / attempted);
         TestingModel.TestingResult testing = new TestingModel().perform(
                 project.getWorkState(), productivity.qaEffectiveCapacity(),
                 averageFatigue(Role.QA_ENGINEER),
@@ -476,6 +698,16 @@ public class SimulationEngine {
         lastWeeklyCost = payroll.add(lastOvertimeCost).add(hiringCost);
         project.addSpent(payroll.add(lastOvertimeCost));
 
+        double debtBeforeWeek = project.getTechnicalDebt();
+        new TechnicalDebtModel().updateAtWeekEnd(
+                project, engineeringApproach, workIntensity, concurrencyPolicy,
+                schedulePressure, dependencyUncertaintyThisWeek,
+                scenario.getTechnicalDebtSensitivity(), debtPayDownPlan.debtReduction(),
+                config.getPhaseFive());
+        if (project.getTechnicalDebt() > debtBeforeWeek + 1.0e-9) {
+            addMessage("Technical debt increased this week.");
+        }
+
         if (project.getWorkState().isReleaseReady()) {
             complete = true;
             defectsReleased = (int) Math.round(project.getWorkState().totalUnknownRework());
@@ -493,6 +725,22 @@ public class SimulationEngine {
             events.add(new ProjectEvent(EventType.PERFORMANCE_PROBLEM,
                     "Deadline missed in Week " + simulatedWeek + ".",
                     simulatedWeek));
+        }
+
+        if (!complete && pendingEventCapacityAvailable()
+                && simulatedWeek - lastEventWeek >= Math.max(
+                        config.getPhaseFive().getEvents().getMinimumSpacingWeeks(),
+                        config.getPhaseFive().getEvents().getCooldownWeeks())) {
+            ProjectEvent generated = eventGenerator.generate(
+                    simulatedWeek, "event-" + (++eventSequence), project, team,
+                    concurrencyPolicy, engineeringApproach, technicalDebtPriority,
+                    workIntensity, scenario, config.getPhaseFive(), random);
+            if (generated != null) {
+                events.add(generated);
+                lastEventWeek = simulatedWeek;
+                eventsGeneratedThisWeek.add(generated.getId());
+                addMessage(generated.getTitle() + ": " + generated.getDescription());
+            }
         }
 
         double averageProductivity = workingTeamSize == 0
@@ -547,9 +795,25 @@ public class SimulationEngine {
                 averageOvertimeStreak(),
                 new TurnoverModel().riskCategory(team, schedulePressure, config),
                 departures.stream().map(employee -> employee.getExperienceLevel().name()
-                        + " " + employee.getRole().name()).toList()
+                        + " " + employee.getRole().name()).toList(),
+                new PhaseFiveSnapshot(
+                        concurrencyPolicy, engineeringApproach, technicalDebtPriority,
+                        project.getTechnicalDebt(), project.getScopeExpansionRatio(),
+                        acceptedFeatures.size(), rejectedFeatures.size(), deferredFeatures.size(),
+                        eventsGeneratedThisWeek, eventDecisionsThisWeek,
+                        outOfSequenceWorkThisWeek, dependencyUncertaintyThisWeek,
+                        scopeChangeReworkThisWeek, eventCreatedWorkThisWeek)
         ));
         hiringCostSinceSnapshot = BigDecimal.ZERO;
+        eventsGeneratedThisWeek.clear();
+        eventDecisionsThisWeek.clear();
+        scopeChangeReworkThisWeek = 0.0;
+        eventCreatedWorkThisWeek = 0.0;
+    }
+
+    private boolean pendingEventCapacityAvailable() {
+        return getPendingEvents().size()
+                < config.getPhaseFive().getEvents().getMaximumUnresolvedEvents();
     }
 
     public FinalProjectReport generateFinalReport() {
@@ -577,6 +841,21 @@ public class SimulationEngine {
                 new MentoringModel().calculate(team, pendingHires.size(), config);
         return new ProductivityModel().calculateForTeam(
                 team, workIntensity, schedulePressure, config, mentoring);
+    }
+
+    private double adjustedDeveloperCapacity(ProductivityModel.ProductivityResult productivity) {
+        double debtModifier = new TechnicalDebtModel().productivityModifier(
+                project.getTechnicalDebt(), config.getPhaseFive());
+        double engineeringModifier = config.getPhaseFive().getEngineeringApproach()
+                .throughput(engineeringApproach);
+        double concurrencyModifier = new ConcurrencyModel().capacityModifier(
+                concurrencyPolicy, productivity.coordinationPenalty(), config.getPhaseFive());
+        return Math.max(0.0, productivity.developerEffectiveCapacity()
+                * debtModifier * engineeringModifier * concurrencyModifier);
+    }
+
+    private List<ProjectEventDto> eventDtos(List<ProjectEvent> source) {
+        return source.stream().map(ProjectEventDto::new).toList();
     }
 
     private double averageFatigue() {

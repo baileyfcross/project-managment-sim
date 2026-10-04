@@ -13,6 +13,12 @@ public class ScenarioConfiguration {
     private boolean budgetFailureAllowed = true;
     private Map<String, Integer> initialTeam = new HashMap<>();
     private Map<String, Double> scope = new HashMap<>();
+    private double featureRequestRate = 1.0;
+    private double stakeholderVolatility = 1.0;
+    private double dependencyRisk = 1.0;
+    private double technicalDebtSensitivity = 1.0;
+    private double projectComplexity = 1.0;
+    private Map<String, Double> eventWeights = new HashMap<>();
 
     public String getId() {
         return id;
@@ -70,6 +76,19 @@ public class ScenarioConfiguration {
         this.scope = scope;
     }
 
+    public double getFeatureRequestRate() { return featureRequestRate; }
+    public void setFeatureRequestRate(double value) { featureRequestRate = value; }
+    public double getStakeholderVolatility() { return stakeholderVolatility; }
+    public void setStakeholderVolatility(double value) { stakeholderVolatility = value; }
+    public double getDependencyRisk() { return dependencyRisk; }
+    public void setDependencyRisk(double value) { dependencyRisk = value; }
+    public double getTechnicalDebtSensitivity() { return technicalDebtSensitivity; }
+    public void setTechnicalDebtSensitivity(double value) { technicalDebtSensitivity = value; }
+    public double getProjectComplexity() { return projectComplexity; }
+    public void setProjectComplexity(double value) { projectComplexity = value; }
+    public Map<String, Double> getEventWeights() { return eventWeights; }
+    public void setEventWeights(Map<String, Double> value) { eventWeights = value; }
+
     public void validate() {
         if (id == null || id.isBlank() || name == null || name.isBlank()) {
             throw new IllegalArgumentException("Scenario id and name are required");
@@ -91,6 +110,26 @@ public class ScenarioConfiguration {
             }
         }
         Objects.requireNonNull(initialTeam, "Scenario initialTeam is required");
+        if (eventWeights == null) {
+            throw new IllegalArgumentException("Scenario event weights cannot be null");
+        }
+        for (double factor : new double[]{featureRequestRate, stakeholderVolatility,
+                dependencyRisk, technicalDebtSensitivity, projectComplexity}) {
+            if (!Double.isFinite(factor) || factor < 0.0 || factor > 5.0) {
+                throw new IllegalArgumentException("Scenario event and complexity factors must be between 0 and 5");
+            }
+        }
+        for (Map.Entry<String, Double> entry : eventWeights.entrySet()) {
+            try {
+                edu.simulator.event.EventType.valueOf(entry.getKey().toUpperCase());
+            } catch (IllegalArgumentException | NullPointerException exception) {
+                throw new IllegalArgumentException("Unknown scenario event type: " + entry.getKey(), exception);
+            }
+            if (entry.getValue() == null || !Double.isFinite(entry.getValue())
+                    || entry.getValue() < 0.0 || entry.getValue() > 10.0) {
+                throw new IllegalArgumentException("Scenario event weights must be between 0 and 10");
+            }
+        }
         for (Map.Entry<String, Integer> entry : initialTeam.entrySet()) {
             if (entry.getValue() == null || entry.getValue() < 0) {
                 throw new IllegalArgumentException("Scenario team counts must be non-negative");

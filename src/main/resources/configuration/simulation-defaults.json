@@ -135,5 +135,102 @@
     "overtimeStreakWeight": 0.012,
     "overtimeStreakCap": 8,
     "maxRate": 0.2
+  },
+  "phaseFive": {
+    "events": {
+      "baseProbability": 0.34,
+      "minimumSpacingWeeks": 2,
+      "cooldownWeeks": 2,
+      "maximumUnresolvedEvents": 1,
+      "featureRequestRate": 1.0,
+      "stakeholderVolatility": 1.0,
+      "dependencyRisk": 1.0,
+      "technicalDebtSensitivity": 1.0,
+      "projectComplexity": 1.0,
+      "eventWorkFraction": 0.025,
+      "debtIssueIncrement": 0.025,
+      "featureTimingFloor": 0.45,
+      "requirementProgressWeight": 1.0,
+      "requirementComplexityFloor": 0.35,
+      "lateRequirementWeight": 0.2,
+      "dependencyConcurrencyWeight": 0.6,
+      "dependencyInstabilityWeight": 1.0,
+      "dependencyPressureWeight": 0.5,
+      "integrationProgressFloor": 0.2,
+      "integrationDebtWeight": 1.0,
+      "integrationConcurrencyWeight": 0.35,
+      "integrationHiddenDefectWeight": 1.0,
+      "devopsCoverageWeight": 0.3,
+      "securityBaseWeight": 0.35,
+      "securityDebtWeight": 1.0,
+      "securityCutCornersWeight": 0.45,
+      "securityFatigueWeight": 0.25,
+      "securityCrunchWeight": 0.15,
+      "debtIssueFloor": 0.2,
+      "debtIssueWeight": 1.5,
+      "ignoredDebtWeight": 0.2,
+      "eventWeights": {
+        "CUSTOMER_FEATURE_REQUEST": 1.0,
+        "REQUIREMENTS_MISUNDERSTANDING": 0.7,
+        "DEPENDENCY_PROBLEM": 0.7,
+        "FAILED_INTEGRATION": 0.6,
+        "SECURITY_VULNERABILITY": 0.45,
+        "TECHNICAL_DEBT_ISSUE": 0.5
+      }
+    },
+    "scope": {
+      "featureWorkFractions": {
+        "REQUIREMENTS": 0.04,
+        "DESIGN": 0.05,
+        "DEVELOPMENT": 0.04,
+        "TESTING": 0.04,
+        "DEPLOYMENT": 0.02
+      },
+      "rippleFactors": {
+        "REQUIREMENTS": 0.25,
+        "DESIGN": 0.22,
+        "DEVELOPMENT": 0.16,
+        "TESTING": 0.1,
+        "DEPLOYMENT": 0.05
+      },
+      "downstreamRipple": 0.45,
+      "regressionDemandFactor": 0.25
+    },
+    "technicalDebt": {
+      "baseAccumulation": 0.001,
+      "pressureAccumulation": 0.004,
+      "crunchAccumulation": 0.004,
+      "concurrencyAccumulation": 0.008,
+      "productivityMaxPenalty": 0.22,
+      "defectMaxIncrease": 0.75,
+      "reworkDifficultyMaxIncrease": 0.35,
+      "payDownCapacityFraction": 0.15,
+      "payDownEffectiveness": 0.55
+    },
+    "engineeringApproach": {
+      "carefulThroughput": 0.96,
+      "balancedThroughput": 1.0,
+      "cutCornersThroughput": 1.08,
+      "carefulDefectMultiplier": 0.88,
+      "balancedDefectMultiplier": 1.0,
+      "cutCornersDefectMultiplier": 1.18,
+      "carefulDebtRate": 0.0,
+      "balancedDebtRate": 0.001,
+      "cutCornersDebtRate": 0.012
+    },
+    "concurrency": {
+      "sequentialReadiness": 0.04,
+      "moderateReadiness": 0.1,
+      "aggressiveReadiness": 0.3,
+      "sequentialCapacity": 0.96,
+      "moderateCapacity": 1.0,
+      "aggressiveCapacity": 1.04,
+      "aggressiveUncertainty": 0.75,
+      "moderateUncertainty": 0.35,
+      "sequentialUncertainty": 0.1,
+      "coordinationReduction": 0.35,
+      "dependencyDefectSensitivity": 0.8,
+      "coordinationPenaltyScale": 0.45
+    }
   }
 }

@@ -38,6 +38,15 @@ public class WorkState {
         baseWorkRemaining.put(phase, work);
     }
 
+    public void addScope(ProjectPhase phase, double value) {
+        double work = SimulationValues.nonNegativeFinite(value);
+        if (work == 0.0) {
+            return;
+        }
+        initialBaseWork.put(phase, safeAdd(getTotalWork(phase), work));
+        baseWorkRemaining.put(phase, safeAdd(getBaseWorkRemaining(phase), work));
+    }
+
     public double getTotalWork(ProjectPhase phase) {
         return initialBaseWork.getOrDefault(phase, 0.0);
     }
@@ -188,6 +197,10 @@ public class WorkState {
 
     public double totalRemainingWork() {
         return perceivedRemainingWork() + totalUnknownRework();
+    }
+
+    public double totalScope() {
+        return sum(initialBaseWork);
     }
 
     public double perceivedRemainingWork() {

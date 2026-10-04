@@ -8,7 +8,10 @@ import edu.simulator.configuration.ScenarioLoader;
 import edu.simulator.configuration.SimulationConfiguration;
 import edu.simulator.decision.HiringDecision;
 import edu.simulator.model.ExperienceLevel;
+import edu.simulator.model.ConcurrencyPolicy;
+import edu.simulator.model.EngineeringApproach;
 import edu.simulator.model.Role;
+import edu.simulator.model.TechnicalDebtPriority;
 import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WorkIntensity;
 import edu.simulator.simulation.CostModel;
@@ -98,6 +101,42 @@ public class JavaBridge {
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new IllegalArgumentException("Unknown testing priority: " + priority, exception);
         }
+        return getSimulationState();
+    }
+
+    public String setConcurrencyPolicy(String policy) {
+        requireSimulation();
+        try {
+            simulationEngine.setConcurrencyPolicy(ConcurrencyPolicy.valueOf(policy));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new IllegalArgumentException("Unknown concurrency policy: " + policy, exception);
+        }
+        return getSimulationState();
+    }
+
+    public String setEngineeringApproach(String approach) {
+        requireSimulation();
+        try {
+            simulationEngine.setEngineeringApproach(EngineeringApproach.valueOf(approach));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new IllegalArgumentException("Unknown engineering approach: " + approach, exception);
+        }
+        return getSimulationState();
+    }
+
+    public String setTechnicalDebtPriority(String priority) {
+        requireSimulation();
+        try {
+            simulationEngine.setTechnicalDebtPriority(TechnicalDebtPriority.valueOf(priority));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new IllegalArgumentException("Unknown technical debt priority: " + priority, exception);
+        }
+        return getSimulationState();
+    }
+
+    public String resolveEvent(String eventId, String optionId) {
+        requireSimulation();
+        simulationEngine.resolveEvent(eventId, optionId);
         return getSimulationState();
     }
 

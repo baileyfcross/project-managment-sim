@@ -1,10 +1,10 @@
 # Software Project Management Simulator
 
-The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 4 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, schedule pressure, overtime, fatigue, morale, turnover, and repeatable seeded scenarios.
+The Software Project Management Simulator is a desktop learning application for students to act as project managers in a simulated software engineering project. The Phase 5 release supports initial and in-project staffing, recruiting delays, experience-based payroll and productivity, onboarding and mentoring, coordination overhead, phase-specific work, QA, defects, rework, testing priority, schedule pressure, overtime, fatigue, morale, turnover, contextual project events, scope decisions, technical debt, project concurrency, and repeatable seeded scenarios.
 
 ## Purpose
 
-This project is designed for classroom use in software engineering courses. Students make initial staffing, hiring, and weekly work-intensity decisions that affect schedule, quality, morale, onboarding, and cost, while the underlying simulation exposes how short-term tradeoffs create delayed project consequences.
+This project is designed for classroom use in software engineering courses. Students make staffing, work-intensity, engineering-quality, concurrency, and event decisions that affect scope, schedule, quality, morale, onboarding, and cost, while the underlying simulation exposes how short-term tradeoffs create delayed project consequences.
 
 ## Architecture
 
@@ -71,7 +71,7 @@ Scenarios are loaded from JSON in src/main/resources/scenarios. Each scenario de
 
 ## Configuration Model
 
-Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, developer rework allocation, phase overlap, quality and defect modifiers, QA throughput and testing priority, regression testing, workweek hours and effort, fatigue accumulation and effects, morale recovery, turnover risk, productivity, and overtime premiums.
+Simulation tuning values live in JSON configuration files in src/main/resources/configuration. These include experience-based salaries and starting experience by role, hiring delays and fees, onboarding, mentoring, coordination, developer rework allocation, phase overlap, quality and defect modifiers, QA throughput and testing priority, regression testing, workweek hours and effort, fatigue accumulation and effects, morale recovery, turnover risk, productivity, overtime premiums, event frequency and contextual weights, scope propagation, technical-debt effects, engineering approaches, and concurrency policies.
 
 ## Simulation Highlights
 
@@ -99,15 +99,27 @@ Morale is also maintained per employee and summarized as Good, Stable, Strained,
 
 The dashboard exposes workweek hours, an average fatigue category, team morale, turnover-risk category, departures this week, and the current overtime premium. It does not reveal exact employee-level fatigue or departure probabilities. Weekly snapshots retain internal fatigue, morale, overtime, streak, and departure history for later analysis. Forecast cost assumes the currently selected work intensity continues for its projected duration and does not predict future turnover.
 
+## Project events and management policies
+
+Project events are generated at the end of a simulated week using the engine's seeded random generator. Event chances and weights depend on elapsed project progress, hidden risk stocks, technical debt, schedule pressure, concurrency, staffing, and scenario settings. Configurable spacing and cooldown values prevent event spam. Important decisions remain pending and block the next advance until the player chooses an option. The event panel and history show descriptions, qualitative impact estimates, decisions, and visible results, not hidden formulas or exact rework quantities.
+
+Customer feature requests are the primary scope-change event. Accepting a request adds phase-specific work to the authoritative ledger. Completed work can require change-related rework, and late changes can create additional testing demand. Scope is shown relative to the original plan and feeds forecast cost and schedule pressure through the added workload. Deferring a feature records it for a future release without adding current work; rejecting it records the lost opportunity without changing scope. Each request is resolved once.
+
+Technical debt represents shortcuts that make future changes harder, not the current defect count. Start-of-week debt affects developer capacity, defect risk, and rework difficulty. The selected engineering approach and pressure-related conditions update debt at week end. Careful work is somewhat slower and accumulates less debt; cutting corners is faster immediately but raises defect risk and future debt. Pay Down reserves developer capacity and reduces debt gradually for later weeks.
+
+Concurrency controls how much downstream work may begin while upstream phases are unfinished. Sequential work reduces overlap; Moderate is the default; Aggressive makes more work available earlier and can improve immediate throughput. Work begun while upstream decisions remain unsettled contributes to internal dependency uncertainty and quality risk. Project management coordination support reduces some, but not all, of this risk.
+
+Scope and event work can increase forecast duration, payroll, testing and known rework. Students can respond by hiring, but new staff still pass through recruiting, onboarding and mentoring. Added pressure flows through the existing overtime, fatigue, morale and turnover systems rather than directly changing employee state. The forecast uses visible current work, known rework, staffing and selected policies, but does not predict future events, unknown rework, scope requests or turnover.
+
 ## Week and seed behavior
 
 The project starts at Week 0, before any work. Each press of **Advance 1 Week** simulates the next week, advances any pending recruiting and onboarding, stores an end-of-week snapshot, and leaves the project at that week. After N advances, the current week and history length are both N.
 
-Leave the seed field blank to have Java generate and display a seed, or enter a signed 64-bit integer to reproduce a run. All stochastic simulation decisions use the seeded generator. Repeating a scenario with the same seed, team, and decisions reproduces the same weekly results.
+Leave the seed field blank to have Java generate and display a seed, or enter a signed 64-bit integer to reproduce a run. Stochastic work, turnover, and event decisions use the same seeded generator. Repeating a scenario with the same seed, team, staffing, work-intensity, testing, scope, concurrency, engineering, debt-priority, and event decisions reproduces the same weekly results.
 
 ## Frontend/backend boundary
 
-Java is authoritative for setup, team counts, staffing options, project state, cost calculations, and simulation outcomes. TypeScript renders DTOs and sends requested actions through the narrow JSON-based Java bridge; it does not maintain an independent simulation state.
+Java is authoritative for setup, team counts, staffing options, project state, event rules, policy effects, cost calculations, and simulation outcomes. TypeScript renders DTOs and sends requested actions through the narrow JSON-based Java bridge; it does not maintain an independent simulation state.
 
 ## Adding a Scenario
 
@@ -119,9 +131,9 @@ Java is authoritative for setup, team counts, staffing options, project state, c
 ## Adding a New Event Type
 
 1. Add a new event type to the EventType enum.
-2. Implement its generation logic in the event generator or simulation engine.
-3. Add a response path in the UI bridge when student decision support is required.
-4. Cover the behavior with a unit test.
+2. Implement contextual generation and consequences in focused event/simulation models.
+3. Add visible options and resolution behavior through the gameplay DTO and Java bridge.
+4. Keep hidden effects out of gameplay DTOs and cover the behavior with a deterministic test.
 
 ## License
 

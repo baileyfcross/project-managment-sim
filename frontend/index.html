@@ -42,6 +42,7 @@
       .phase-progress-row { display: grid; grid-template-columns: 130px minmax(100px, 1fr) 48px; gap: 12px; align-items: center; margin: 12px 0; }
       .phase-progress-row .progress-track { width: 100%; margin: 0; }
       .muted { color: #aab9cc; font-size: 13px; }
+      .event-card { margin-top: 12px; padding: 16px; border: 1px solid #48617e; border-radius: 9px; background: #1d2d43; }
       [hidden] { display: none !important; }
       @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two-column { grid-template-columns: 1fr; } }
     </style>
@@ -107,12 +108,56 @@
           <p id="workIntensityHelp" class="muted">Sustainable hours provide normal recovery.</p>
           <p id="dashboardError" class="error" role="alert"></p>
         </div>
+        <section class="card" aria-labelledby="projectDecisionsHeading">
+          <h2 id="projectDecisionsHeading">Project Decisions</h2>
+          <div class="grid">
+            <div>
+              <label for="concurrencyPolicy">Concurrency</label>
+              <select id="concurrencyPolicy">
+                <option value="SEQUENTIAL">Sequential</option>
+                <option value="MODERATE" selected>Moderate</option>
+                <option value="AGGRESSIVE">Aggressive</option>
+              </select>
+              <p class="muted">How much work begins before earlier phases are settled.</p>
+            </div>
+            <div>
+              <label for="engineeringApproach">Engineering approach</label>
+              <select id="engineeringApproach">
+                <option value="CAREFUL">Careful</option>
+                <option value="BALANCED" selected>Balanced</option>
+                <option value="CUT_CORNERS">Cut Corners</option>
+              </select>
+              <p class="muted">Careful work is steadier; shortcuts can be faster but add future risk.</p>
+            </div>
+            <div>
+              <label for="technicalDebtPriority">Technical debt</label>
+              <select id="technicalDebtPriority">
+                <option value="IGNORE">Ignore</option>
+                <option value="NORMAL" selected>Normal</option>
+                <option value="PAY_DOWN">Pay Down</option>
+              </select>
+              <p class="muted">Shortcuts that make future changes harder can be addressed over time.</p>
+            </div>
+          </div>
+        </section>
+        <section id="pendingEvents" class="card" aria-live="polite" hidden>
+          <h2>Project Event - Decision Required</h2>
+        </section>
+        <section class="card" aria-labelledby="eventHistoryHeading">
+          <h2 id="eventHistoryHeading">Project Event History</h2>
+          <ul id="eventHistory" class="messages"></ul>
+        </section>
         <div class="grid">
           <div class="metric"><div class="metric-label">Budget spent</div><div id="spentValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Budget remaining</div><div id="remainingValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Weekly burn rate</div><div id="burnRateValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Forecast final cost</div><div id="forecastCostValue" class="metric-value">-</div></div>
           <div class="metric"><div class="metric-label">Overtime premium this week</div><div id="overtimeCostValue" class="metric-value">-</div></div>
+          <div class="metric"><div class="metric-label">Project scope change</div><div id="scopeValue" class="metric-value">-</div></div>
+          <div class="metric"><div class="metric-label">Technical debt</div><div id="technicalDebtValue" class="metric-value">-</div></div>
+          <div class="metric"><div class="metric-label">Accepted changes</div><div id="acceptedFeaturesValue" class="metric-value">0</div></div>
+          <div class="metric"><div class="metric-label">Deferred features</div><div id="deferredFeaturesValue" class="metric-value">0</div></div>
+          <div class="metric"><div class="metric-label">Rejected requests</div><div id="rejectedFeaturesValue" class="metric-value">0</div></div>
         </div>
         <div class="two-column">
           <div class="card">

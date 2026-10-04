@@ -51,6 +51,7 @@ public class WeeklySnapshot {
     private final double averageOvertimeStreak;
     private final String turnoverRisk;
     private final List<String> employeesDeparted;
+    private final PhaseFiveSnapshot phaseFive;
 
     public WeeklySnapshot(int week, BigDecimal spent, BigDecimal remainingBudget,
                           BigDecimal weeklyCost, double perceivedProgress,
@@ -76,7 +77,7 @@ public class WeeklySnapshot {
                           TestingPriority testingPriority, WorkIntensity workIntensity,
                           double maximumFatigue, double averageMorale, BigDecimal overtimeCost,
                           double averageOvertimeStreak, String turnoverRisk,
-                          List<String> employeesDeparted) {
+                          List<String> employeesDeparted, PhaseFiveSnapshot phaseFive) {
         if (week < 1) {
             throw new IllegalArgumentException("A weekly snapshot must represent Week 1 or later");
         }
@@ -127,6 +128,7 @@ public class WeeklySnapshot {
         this.averageOvertimeStreak = SimulationValues.nonNegativeFinite(averageOvertimeStreak);
         this.turnoverRisk = turnoverRisk;
         this.employeesDeparted = List.copyOf(employeesDeparted);
+        this.phaseFive = phaseFive;
     }
 
     public int getWeek() {
@@ -245,6 +247,7 @@ public class WeeklySnapshot {
     public double getAverageOvertimeStreak() { return averageOvertimeStreak; }
     public String getTurnoverRisk() { return turnoverRisk; }
     public List<String> getEmployeesDeparted() { return employeesDeparted; }
+    public PhaseFiveSnapshot getPhaseFive() { return phaseFive; }
 
     private Map<ProjectPhase, Double> immutablePhaseMap(Map<ProjectPhase, Double> source) {
         EnumMap<ProjectPhase, Double> copy = new EnumMap<>(ProjectPhase.class);

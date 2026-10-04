@@ -13,6 +13,7 @@ public class Project {
     private BigDecimal spent;
     private int currentWeek;
     private final WorkState workState;
+    private final Map<ProjectPhase, Double> originalScope = new EnumMap<>(ProjectPhase.class);
     private final Map<ProjectPhase, Double> phaseProgress = new EnumMap<>(ProjectPhase.class);
     private final Map<ProjectPhase, Double> hiddenProgress = new EnumMap<>(ProjectPhase.class);
     private double technicalDebt;
@@ -36,6 +37,7 @@ public class Project {
         for (ProjectPhase phase : ProjectPhase.values()) {
             phaseProgress.put(phase, 0.0);
             hiddenProgress.put(phase, 0.0);
+            originalScope.put(phase, 0.0);
         }
     }
 
@@ -95,6 +97,24 @@ public class Project {
 
     public WorkState getWorkState() {
         return workState;
+    }
+
+    public void recordOriginalScope(ProjectPhase phase, double value) {
+        originalScope.put(phase, SimulationValues.nonNegativeFinite(value));
+    }
+
+    public double getOriginalScope(ProjectPhase phase) {
+        return originalScope.getOrDefault(phase, 0.0);
+    }
+
+    public double getOriginalScopeTotal() {
+        return originalScope.values().stream().mapToDouble(Double::doubleValue).sum();
+    }
+
+    public double getScopeExpansionRatio() {
+        double original = getOriginalScopeTotal();
+        double current = workState.totalScope();
+        return original <= 0.0 ? 0.0 : Math.max(0.0, current / original - 1.0);
     }
 
     public double getPhaseProgress(ProjectPhase phase) {

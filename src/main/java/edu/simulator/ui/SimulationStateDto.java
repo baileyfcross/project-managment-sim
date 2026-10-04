@@ -2,6 +2,9 @@ package edu.simulator.ui;
 
 import edu.simulator.model.WorkIntensity;
 import edu.simulator.model.TestingPriority;
+import edu.simulator.model.ConcurrencyPolicy;
+import edu.simulator.model.EngineeringApproach;
+import edu.simulator.model.TechnicalDebtPriority;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -41,6 +44,16 @@ public class SimulationStateDto {
     private final String turnoverRisk;
     private final int employeesDepartedThisWeek;
     private final BigDecimal overtimeCost;
+    private final double scopeExpansion;
+    private final int acceptedFeatureCount;
+    private final int deferredFeatureCount;
+    private final int rejectedFeatureCount;
+    private final String technicalDebtHealth;
+    private final ConcurrencyPolicy concurrencyPolicy;
+    private final EngineeringApproach engineeringApproach;
+    private final TechnicalDebtPriority technicalDebtPriority;
+    private final List<ProjectEventDto> pendingEvents;
+    private final List<ProjectEventDto> eventHistory;
 
     public SimulationStateDto(int week, long seed, int deadline, BigDecimal budget,
                               BigDecimal spent, BigDecimal remainingBudget,
@@ -54,7 +67,14 @@ public class SimulationStateDto {
                               String testingBacklogStatus, TestingPriority testingPriority,
                               double qaCapacity, int workIntensityHours,
                               String averageFatigueHealth, String turnoverRisk,
-                              int employeesDepartedThisWeek, BigDecimal overtimeCost) {
+                              int employeesDepartedThisWeek, BigDecimal overtimeCost,
+                              double scopeExpansion, int acceptedFeatureCount,
+                              int deferredFeatureCount, int rejectedFeatureCount,
+                              String technicalDebtHealth, ConcurrencyPolicy concurrencyPolicy,
+                              EngineeringApproach engineeringApproach,
+                              TechnicalDebtPriority technicalDebtPriority,
+                              List<ProjectEventDto> pendingEvents,
+                              List<ProjectEventDto> eventHistory) {
         this.week = week;
         this.seed = Long.toString(seed);
         this.deadline = deadline;
@@ -84,6 +104,16 @@ public class SimulationStateDto {
         this.turnoverRisk = turnoverRisk;
         this.employeesDepartedThisWeek = employeesDepartedThisWeek;
         this.overtimeCost = overtimeCost;
+        this.scopeExpansion = Math.max(0.0, Double.isFinite(scopeExpansion) ? scopeExpansion : 0.0);
+        this.acceptedFeatureCount = Math.max(0, acceptedFeatureCount);
+        this.deferredFeatureCount = Math.max(0, deferredFeatureCount);
+        this.rejectedFeatureCount = Math.max(0, rejectedFeatureCount);
+        this.technicalDebtHealth = technicalDebtHealth;
+        this.concurrencyPolicy = concurrencyPolicy;
+        this.engineeringApproach = engineeringApproach;
+        this.technicalDebtPriority = technicalDebtPriority;
+        this.pendingEvents = List.copyOf(pendingEvents);
+        this.eventHistory = List.copyOf(eventHistory);
     }
 
     public int getWeek() {
@@ -169,4 +199,14 @@ public class SimulationStateDto {
     public String getTurnoverRisk() { return turnoverRisk; }
     public int getEmployeesDepartedThisWeek() { return employeesDepartedThisWeek; }
     public BigDecimal getOvertimeCost() { return overtimeCost; }
+    public double getScopeExpansion() { return scopeExpansion; }
+    public int getAcceptedFeatureCount() { return acceptedFeatureCount; }
+    public int getDeferredFeatureCount() { return deferredFeatureCount; }
+    public int getRejectedFeatureCount() { return rejectedFeatureCount; }
+    public String getTechnicalDebtHealth() { return technicalDebtHealth; }
+    public ConcurrencyPolicy getConcurrencyPolicy() { return concurrencyPolicy; }
+    public EngineeringApproach getEngineeringApproach() { return engineeringApproach; }
+    public TechnicalDebtPriority getTechnicalDebtPriority() { return technicalDebtPriority; }
+    public List<ProjectEventDto> getPendingEvents() { return pendingEvents; }
+    public List<ProjectEventDto> getEventHistory() { return eventHistory; }
 }

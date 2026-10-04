@@ -14,8 +14,14 @@ import edu.simulator.model.Team;
 import edu.simulator.model.TestingPriority;
 import edu.simulator.model.WorkState;
 import edu.simulator.model.WorkIntensity;
+import edu.simulator.model.ConcurrencyPolicy;
+import edu.simulator.model.EngineeringApproach;
+import edu.simulator.model.TechnicalDebtPriority;
+import edu.simulator.event.EventType;
+import edu.simulator.event.ProjectEvent;
 import edu.simulator.simulation.CostModel;
 import edu.simulator.simulation.CoordinationModel;
+import edu.simulator.simulation.ConcurrencyModel;
 import edu.simulator.simulation.DefectModel;
 import edu.simulator.simulation.FatigueModel;
 import edu.simulator.simulation.ForecastModel;
@@ -26,9 +32,11 @@ import edu.simulator.simulation.PhaseReadinessModel;
 import edu.simulator.simulation.ProductivityModel;
 import edu.simulator.simulation.ReworkModel;
 import edu.simulator.simulation.SchedulePressureModel;
+import edu.simulator.simulation.ScopeChangeModel;
 import edu.simulator.simulation.SimulationEngine;
 import edu.simulator.simulation.TestingModel;
 import edu.simulator.simulation.TurnoverModel;
+import edu.simulator.simulation.TechnicalDebtModel;
 import edu.simulator.ui.JavaBridge;
 import org.junit.jupiter.api.Test;
 
@@ -123,7 +131,7 @@ class SimulationEngineTest {
         assertTrue(engine.getHistory().isEmpty());
 
         for (int week = 1; week <= 5; week++) {
-            engine.advanceWeek();
+            advanceOneWeek(engine);
             assertEquals(week, engine.getCurrentWeek());
             assertEquals(week, engine.getHistory().size());
             assertEquals(week, engine.getHistory().get(week - 1).getWeek());
@@ -140,8 +148,8 @@ class SimulationEngineTest {
                 first.setWorkIntensity(WorkIntensity.INCREASED);
                 second.setWorkIntensity(WorkIntensity.INCREASED);
             }
-            first.advanceWeek();
-            second.advanceWeek();
+            advanceOneWeek(first);
+            advanceOneWeek(second);
         }
 
         assertEquals(observations(first), observations(second));
@@ -152,8 +160,8 @@ class SimulationEngineTest {
         Map<Role, Integer> largeTeam = teamCounts(100, 0, 0, 0);
         SimulationEngine first = newEngine(11L, largeTeam);
         SimulationEngine second = newEngine(12L, largeTeam);
-        first.advanceWeek();
-        second.advanceWeek();
+        advanceOneWeek(first);
+        advanceOneWeek(second);
 
         assertNotEquals(first.getHistory().getFirst().getTeamSize(),
                 second.getHistory().getFirst().getTeamSize());
@@ -162,7 +170,7 @@ class SimulationEngineTest {
     @Test
     void gameplayStateDoesNotSerializeHiddenProgressOrUnknownRework() throws Exception {
         SimulationEngine engine = newEngine(7L, null);
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         String serialized = objectMapper.writeValueAsString(engine.getCurrentState());
 
         assertFalse(serialized.contains("trueProgress"));
@@ -241,7 +249,7 @@ class SimulationEngineTest {
 
         SimulationEngine engine = newEngine(88L, null);
         for (int week = 0; week < 5; week++) {
-            engine.advanceWeek();
+            advanceOneWeek(engine);
         }
         for (var snapshot : engine.getHistory()) {
             assertTrue(Double.isFinite(snapshot.getPerceivedProgress()));
@@ -264,13 +272,13 @@ class SimulationEngineTest {
         assertEquals(new BigDecimal("0.0"),
                 engine.getTeamManagementState().weeklyPayroll());
 
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         assertEquals(0, engine.getTeam().totalCount());
         assertEquals(1, engine.getPendingHires().getFirst().getWeeksUntilStart());
         assertEquals(new BigDecimal("0.0"), engine.getHistory().getFirst().getWeeklyPayroll());
         assertEquals(new BigDecimal("1500.0"), engine.getHistory().getFirst().getHiringCost());
 
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         assertEquals(1, engine.getTeam().count(Role.DEVELOPER));
         assertTrue(engine.getPendingHires().isEmpty());
         assertEquals(new BigDecimal("2100.0"), engine.getHistory().get(1).getWeeklyPayroll());
@@ -299,7 +307,7 @@ class SimulationEngineTest {
         assertEquals(4, hire.getOnboardingDurationWeeks());
         assertEquals(0.4, hire.getOnboardingProgress());
         assertEquals(1, engine.getTeamManagementState().onboardingEmployees());
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         assertTrue(hire.getOnboardingProgress() > 0.4);
         assertEquals(engine.getTeam().onboardingEmployees().size(),
                 engine.getHistory().getFirst().getOnboardingEmployees());
@@ -400,8 +408,8 @@ class SimulationEngineTest {
         first.hire(decision);
         second.hire(decision);
         for (int week = 0; week < 5; week++) {
-            first.advanceWeek();
-            second.advanceWeek();
+            advanceOneWeek(first);
+            advanceOneWeek(second);
         }
         assertEquals(observations(first), observations(second));
         assertEquals(first.getHistory().get(4).getExperienceCounts(),
@@ -578,7 +586,7 @@ class SimulationEngineTest {
         assertTrue(afterDiscovery > beforeDiscovery);
 
         SimulationEngine engine = newEngine(35L, null);
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         String json = objectMapper.writeValueAsString(engine.getCurrentState());
         assertFalse(json.contains("trueProgress"));
         assertFalse(json.contains("unknownRework"));
@@ -628,8 +636,8 @@ class SimulationEngineTest {
         SimulationEngine developerHeavy = new SimulationEngine(scenario, config, 411L,
                 teamCounts(10, 1, 0, 0));
         for (int week = 0; week < 5; week++) {
-            balanced.advanceWeek();
-            developerHeavy.advanceWeek();
+            advanceOneWeek(balanced);
+            advanceOneWeek(developerHeavy);
         }
 
         assertTrue(developerHeavy.getProject().calculatePerceivedPhaseProgress()
@@ -814,7 +822,7 @@ class SimulationEngineTest {
 
         SimulationEngine engine = newEngine(351L, null);
         engine.setWorkIntensity(WorkIntensity.CRUNCH);
-        engine.advanceWeek();
+        advanceOneWeek(engine);
         JsonNode dto = objectMapper.readTree(objectMapper.writeValueAsString(engine.getCurrentState()));
         assertEquals("CRUNCH", dto.get("workIntensity").textValue());
         assertEquals(60, dto.get("workIntensityHours").intValue());
@@ -835,7 +843,7 @@ class SimulationEngineTest {
         engine.hire(new HiringDecision(Role.DEVELOPER, ExperienceLevel.SENIOR, 1));
         Employee pending = engine.getPendingHires().get(0).getEmployee();
         engine.setWorkIntensity(WorkIntensity.CRUNCH);
-        engine.advanceWeek();
+        advanceOneWeek(engine);
 
         assertFalse(pending.isActive());
         assertEquals(0.0, pending.getFatigue());
@@ -861,15 +869,15 @@ class SimulationEngineTest {
                 scenario, crunchConfig, 711L, team);
         sustainable.setWorkIntensity(WorkIntensity.SUSTAINABLE);
         crunch.setWorkIntensity(WorkIntensity.CRUNCH);
-        sustainable.advanceWeek();
-        crunch.advanceWeek();
+        advanceOneWeek(sustainable);
+        advanceOneWeek(crunch);
         assertTrue(crunch.getProject().getWorkState().getTotalWorkAttemptedThisWeek()
                 > sustainable.getProject().getWorkState().getTotalWorkAttemptedThisWeek());
         assertTrue(crunch.getHistory().get(0).getOvertimeCost().doubleValue() > 0.0);
 
         for (int week = 0; week < 5; week++) {
-            sustainable.advanceWeek();
-            crunch.advanceWeek();
+            advanceOneWeek(sustainable);
+            advanceOneWeek(crunch);
         }
         assertTrue(crunch.getHistory().get(5).getAverageFatigue()
                 > sustainable.getHistory().get(5).getAverageFatigue());
@@ -884,7 +892,7 @@ class SimulationEngineTest {
         config.getTurnover().setMaxRate(1.0);
         SimulationEngine engine = new SimulationEngine(
                 scenario, config, 77L, teamCounts(2, 1, 0, 0));
-        engine.advanceWeek();
+        advanceOneWeek(engine);
 
         var snapshot = engine.getHistory().get(0);
         assertEquals(3, snapshot.getEmployeesDeparted().size());
@@ -921,12 +929,254 @@ class SimulationEngineTest {
         assertEquals(withKnownRework, withHiddenRework);
     }
 
+    @Test
+    void lateFeatureChangesConserveScopeAndCreateMoreReworkThanEarlyChanges() {
+        var configuration = ConfigurationLoader.loadDefault();
+        Project early = projectWithScope();
+        Project late = projectWithScope();
+        for (ProjectPhase phase : ProjectPhase.values()) {
+            double currentScope = late.getWorkState().getTotalWork(phase);
+            late.getWorkState().recordNewWork(phase, currentScope * 0.8, 0.0);
+        }
+        Map<ProjectPhase, Double> feature = Map.of(
+                ProjectPhase.REQUIREMENTS, 20.0,
+                ProjectPhase.DESIGN, 30.0,
+                ProjectPhase.DEVELOPMENT, 100.0,
+                ProjectPhase.TESTING, 40.0,
+                ProjectPhase.DEPLOYMENT, 10.0);
+
+        var earlyChange = new ScopeChangeModel().acceptFeature(
+                early, feature, configuration.getPhaseFive());
+        var lateChange = new ScopeChangeModel().acceptFeature(
+                late, feature, configuration.getPhaseFive());
+
+        assertEquals(early.getOriginalScopeTotal() + 200.0,
+                early.getWorkState().totalScope(), 1.0e-8);
+        assertEquals(early.getOriginalScopeTotal() + 200.0,
+                earlyChange.addedScope() + early.getOriginalScopeTotal(), 1.0e-8);
+        assertTrue(lateChange.reworkGenerated() > earlyChange.reworkGenerated());
+        assertTrue(lateChange.reworkGenerated() >= 0.0);
+        assertTrue(late.getWorkState().getBaseWorkRemaining(ProjectPhase.DEVELOPMENT)
+                >= 20.0);
+        assertTrue(late.getWorkState().getTotalTestingBacklog() > 0.0);
+    }
+
+    @Test
+    void featureDecisionsBlockAdvancementAndOnlyAcceptanceExpandsCurrentScope() throws Exception {
+        SimulationEngine rejected = featureRequestEngine(512L);
+        rejected.advanceWeek();
+        ProjectEvent request = rejected.getPendingEvents().get(0);
+        assertEquals(EventType.CUSTOMER_FEATURE_REQUEST, request.getType());
+        double originalScope = rejected.getProject().getWorkState().totalScope();
+        assertThrows(IllegalStateException.class, rejected::advanceWeek);
+
+        rejected.resolveEvent(request.getId(), "REJECT");
+        assertEquals(originalScope, rejected.getProject().getWorkState().totalScope());
+        assertTrue(rejected.getPendingEvents().isEmpty());
+        assertTrue(rejected.getEvents().get(0).isResolved());
+        assertEquals(1, rejected.getEventDecisions().size());
+        assertEquals(1, rejected.getEvents().get(0).getEventResult().resolutionWeek());
+        assertTrue(rejected.getEvents().get(0).getEventResult().internalEffects()
+                .containsKey("eventCreatedWork"));
+        assertThrows(IllegalStateException.class,
+                () -> rejected.resolveEvent(request.getId(), "REJECT"));
+
+        SimulationEngine accepted = featureRequestEngine(512L);
+        accepted.advanceWeek();
+        ProjectEvent acceptedRequest = accepted.getPendingEvents().get(0);
+        double beforeForecast = accepted.getCurrentState().getForecastCost().doubleValue();
+        double beforeScope = accepted.getProject().getWorkState().totalScope();
+        accepted.resolveEvent(acceptedRequest.getId(), "ACCEPT");
+        assertTrue(accepted.getProject().getWorkState().totalScope() > beforeScope);
+        assertEquals(1, accepted.getCurrentState().getAcceptedFeatureCount());
+        assertTrue(accepted.getCurrentState().getForecastCost().doubleValue() > beforeForecast);
+
+        SimulationEngine deferred = featureRequestEngine(512L);
+        deferred.advanceWeek();
+        ProjectEvent deferredRequest = deferred.getPendingEvents().get(0);
+        double deferredScope = deferred.getProject().getWorkState().totalScope();
+        deferred.resolveEvent(deferredRequest.getId(), "DEFER");
+        assertEquals(deferredScope, deferred.getProject().getWorkState().totalScope());
+        assertEquals(1, deferred.getCurrentState().getDeferredFeatureCount());
+        assertEquals(0, deferred.getCurrentState().getAcceptedFeatureCount());
+
+        String gameplayJson = objectMapper.writeValueAsString(accepted.getCurrentState());
+        assertFalse(gameplayJson.contains("featureWork"));
+        assertFalse(gameplayJson.contains("customerValuePotential"));
+        assertFalse(gameplayJson.contains("unknownRework"));
+        assertFalse(gameplayJson.contains("trueProgress"));
+        assertFalse(gameplayJson.contains("internalEffects"));
+    }
+
+    @Test
+    void seededEventGenerationAndResolutionsAreReproducible() {
+        SimulationEngine first = featureRequestEngine(8741L);
+        SimulationEngine second = featureRequestEngine(8741L);
+        for (int week = 0; week < 7; week++) {
+            advanceOneWeek(first);
+            advanceOneWeek(second);
+        }
+        assertEquals(first.getEvents().stream()
+                        .map(event -> event.getId() + "|" + event.getType() + "|" + event.getWeek()).toList(),
+                second.getEvents().stream()
+                        .map(event -> event.getId() + "|" + event.getType() + "|" + event.getWeek()).toList());
+        assertEquals(first.getEventDecisions(), second.getEventDecisions());
+    }
+
+    @Test
+    void concurrencyAdjustsReadinessAndUncertaintyButNotRiskAfterUpstreamCompletion() {
+        var configuration = ConfigurationLoader.loadDefault();
+        WorkState work = new WorkState();
+        work.setTotalWork(ProjectPhase.REQUIREMENTS, 100.0);
+        work.setTotalWork(ProjectPhase.DESIGN, 100.0);
+        ConcurrencyModel model = new ConcurrencyModel();
+
+        double sequential = model.readiness(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.SEQUENTIAL, configuration.getPhaseFive());
+        double moderate = model.readiness(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.MODERATE, configuration.getPhaseFive());
+        double aggressive = model.readiness(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.AGGRESSIVE, configuration.getPhaseFive());
+        double aggressiveRisk = model.dependencyUncertainty(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.AGGRESSIVE, 0.2, configuration.getPhaseFive());
+        assertTrue(sequential < moderate && moderate < aggressive);
+        assertTrue(aggressiveRisk > 0.0);
+
+        work.recordNewWork(ProjectPhase.REQUIREMENTS, 100.0, 0.0);
+        assertEquals(1.0, model.readiness(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.AGGRESSIVE, configuration.getPhaseFive()));
+        assertEquals(0.0, model.dependencyUncertainty(ProjectPhase.DESIGN, work,
+                ConcurrencyPolicy.AGGRESSIVE, 0.2, configuration.getPhaseFive()));
+    }
+
+    @Test
+    void technicalDebtEffectsAreDelayedBoundedAndPayDownUsesCapacity() {
+        var configuration = ConfigurationLoader.loadDefault();
+        TechnicalDebtModel model = new TechnicalDebtModel();
+        assertTrue(model.productivityModifier(0.8, configuration.getPhaseFive())
+                < model.productivityModifier(0.2, configuration.getPhaseFive()));
+        assertTrue(model.defectModifier(0.8, configuration.getPhaseFive())
+                > model.defectModifier(0.2, configuration.getPhaseFive()));
+
+        Project project = projectWithScope();
+        project.setTechnicalDebt(0.6);
+        var payDown = model.planPayDown(project, 1_000.0,
+                TechnicalDebtPriority.PAY_DOWN, configuration.getPhaseFive());
+        assertEquals(150.0, payDown.capacitySpent(), 1.0e-8);
+        assertEquals(0.6, project.getTechnicalDebt(), 1.0e-8);
+        project.setTechnicalDebt(project.getTechnicalDebt() - payDown.debtReduction());
+        assertTrue(project.getTechnicalDebt() < 0.6);
+        assertTrue(project.getTechnicalDebt() > 0.0);
+        project.setTechnicalDebt(1.0);
+        model.updateAtWeekEnd(project, EngineeringApproach.CUT_CORNERS,
+                WorkIntensity.CRUNCH, ConcurrencyPolicy.AGGRESSIVE,
+                1.0, 1.0, 1.0, configuration.getPhaseFive());
+        assertTrue(project.getTechnicalDebt() <= 1.0);
+        assertTrue(project.getTechnicalDebt() >= 0.0);
+    }
+
+    @Test
+    void cutCornersTradeMoreImmediateWorkForHigherEndOfWeekDebt() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var balancedConfig = ConfigurationLoader.loadDefault();
+        var cornersConfig = ConfigurationLoader.loadDefault();
+        balancedConfig.getPhaseFive().getEvents().setBaseProbability(0.0);
+        cornersConfig.getPhaseFive().getEvents().setBaseProbability(0.0);
+        Map<Role, Integer> team = teamCounts(5, 2, 1, 1);
+        SimulationEngine balanced = new SimulationEngine(scenario, balancedConfig, 997L, team);
+        SimulationEngine corners = new SimulationEngine(scenario, cornersConfig, 997L, team);
+        corners.setEngineeringApproach(EngineeringApproach.CUT_CORNERS);
+
+        balanced.advanceWeek();
+        corners.advanceWeek();
+
+        assertTrue(corners.getHistory().get(0).getWorkAttemptedByPhase().values().stream()
+                .mapToDouble(Double::doubleValue).sum()
+                > balanced.getHistory().get(0).getWorkAttemptedByPhase().values().stream()
+                .mapToDouble(Double::doubleValue).sum());
+        assertTrue(corners.getHistory().get(0).getPhaseFive().technicalDebt()
+                > balanced.getHistory().get(0).getPhaseFive().technicalDebt());
+    }
+
+    @Test
+    void debtPayDownReducesFeatureCapacityWithoutFreeProductivity() {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var normalConfig = ConfigurationLoader.loadDefault();
+        var payDownConfig = ConfigurationLoader.loadDefault();
+        normalConfig.getPhaseFive().getEvents().setBaseProbability(0.0);
+        payDownConfig.getPhaseFive().getEvents().setBaseProbability(0.0);
+        Map<Role, Integer> team = teamCounts(5, 2, 1, 1);
+        SimulationEngine normal = new SimulationEngine(scenario, normalConfig, 1402L, team);
+        SimulationEngine payDown = new SimulationEngine(scenario, payDownConfig, 1402L, team);
+        normal.getProject().setTechnicalDebt(0.6);
+        payDown.getProject().setTechnicalDebt(0.6);
+        payDown.setTechnicalDebtPriority(TechnicalDebtPriority.PAY_DOWN);
+
+        normal.advanceWeek();
+        payDown.advanceWeek();
+
+        double normalAttempted = normal.getHistory().get(0).getWorkAttemptedByPhase()
+                .values().stream().mapToDouble(Double::doubleValue).sum();
+        double payDownAttempted = payDown.getHistory().get(0).getWorkAttemptedByPhase()
+                .values().stream().mapToDouble(Double::doubleValue).sum();
+        assertTrue(payDownAttempted < normalAttempted);
+        assertTrue(payDown.getProject().getTechnicalDebt() < normal.getProject().getTechnicalDebt());
+    }
+
+    private Project projectWithScope() {
+        Project project = new Project("scope-test", "Scope test", 20, BigDecimal.valueOf(100_000));
+        Map<ProjectPhase, Double> work = Map.of(
+                ProjectPhase.REQUIREMENTS, 100.0,
+                ProjectPhase.DESIGN, 200.0,
+                ProjectPhase.DEVELOPMENT, 1_000.0,
+                ProjectPhase.TESTING, 400.0,
+                ProjectPhase.DEPLOYMENT, 100.0);
+        work.forEach((phase, amount) -> {
+            project.getWorkState().setTotalWork(phase, amount);
+            project.recordOriginalScope(phase, amount);
+        });
+        return project;
+    }
+
+    private SimulationEngine featureRequestEngine(long seed) {
+        var scenario = ScenarioLoader.loadScenario("small-web-app");
+        var configuration = ConfigurationLoader.loadDefault();
+        var settings = configuration.getPhaseFive().getEvents();
+        settings.setBaseProbability(1.0);
+        settings.setMinimumSpacingWeeks(1);
+        settings.setCooldownWeeks(0);
+        settings.setEventWeights(Map.of(EventType.CUSTOMER_FEATURE_REQUEST.name(), 1.0));
+        configuration.getPhaseFive().getScope().setFeatureWorkFractions(Map.of(
+                "REQUIREMENTS", 0.5,
+                "DESIGN", 0.5,
+                "DEVELOPMENT", 0.5,
+                "TESTING", 0.5,
+                "DEPLOYMENT", 0.5));
+        return new SimulationEngine(scenario, configuration, seed,
+                teamCounts(5, 2, 1, 1));
+    }
+
     private SimulationEngine newEngine(long seed, Map<Role, Integer> team) {
         var scenario = ScenarioLoader.loadScenario("small-web-app");
         var configuration = ConfigurationLoader.loadDefault();
         return team == null
                 ? new SimulationEngine(scenario, configuration, seed)
                 : new SimulationEngine(scenario, configuration, seed, team);
+    }
+
+    private void advanceOneWeek(SimulationEngine engine) {
+        for (var event : engine.getPendingEvents()) {
+            String preferredChoice = switch (event.getType()) {
+                case CUSTOMER_FEATURE_REQUEST -> "REJECT";
+                case REQUIREMENTS_MISUNDERSTANDING -> "KEEP";
+                case DEPENDENCY_PROBLEM -> "WORKAROUND";
+                case FAILED_INTEGRATION, TECHNICAL_DEBT_ISSUE -> "DEFER";
+                case SECURITY_VULNERABILITY -> "TEMPORARY_FIX";
+                default -> event.getOptions().get(event.getOptions().size() - 1).id();
+            };
+            engine.resolveEvent(event.getId(), preferredChoice);
+        }
+        engine.advanceWeek();
     }
 
     private Map<Role, Integer> teamCounts(int developers, int qa, int devops, int managers) {

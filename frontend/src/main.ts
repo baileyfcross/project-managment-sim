@@ -41,6 +41,29 @@ type SimulationState = {
   turnoverRisk: string;
   employeesDepartedThisWeek: number;
   overtimeCost: number;
+  scopeExpansion: number;
+  acceptedFeatureCount: number;
+  deferredFeatureCount: number;
+  rejectedFeatureCount: number;
+  technicalDebtHealth: string;
+  concurrencyPolicy: string;
+  engineeringApproach: string;
+  technicalDebtPriority: string;
+  pendingEvents: ProjectEventView[];
+  eventHistory: ProjectEventView[];
+};
+
+type ProjectEventView = {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  week: number;
+  options: Array<{ id: string; label: string; description: string }>;
+  impactEstimate: string;
+  resolved: boolean;
+  selectedOption: string | null;
+  result: string | null;
 };
 
 type HiringOption = {
@@ -73,6 +96,10 @@ type JavaBridge = {
   advanceWeek(): string;
   setWorkIntensity(intensity: string): string;
   setTestingPriority(priority: string): string;
+  setConcurrencyPolicy(policy: string): string;
+  setEngineeringApproach(approach: string): string;
+  setTechnicalDebtPriority(priority: string): string;
+  resolveEvent(eventId: string, optionId: string): string;
   getTeamManagementState(): string;
   hireEmployee(role: string, experience: string, quantity: number): string;
 };
@@ -149,6 +176,12 @@ function renderDashboard(state: SimulationState): void {
   document.getElementById('turnoverRisk')!.textContent = state.turnoverRisk;
   document.getElementById('departuresValue')!.textContent = String(state.employeesDepartedThisWeek);
   document.getElementById('overtimeCostValue')!.textContent = formatCurrency(state.overtimeCost);
+  document.getElementById('scopeValue')!.textContent =
+    `${state.scopeExpansion < 0.01 ? 'Original' : `+${(state.scopeExpansion * 100).toFixed(0)}%`}`;
+  document.getElementById('acceptedFeaturesValue')!.textContent = String(state.acceptedFeatureCount);
+  document.getElementById('deferredFeaturesValue')!.textContent = String(state.deferredFeatureCount);
+  document.getElementById('rejectedFeaturesValue')!.textContent = String(state.rejectedFeatureCount);
+  document.getElementById('technicalDebtValue')!.textContent = state.technicalDebtHealth;
   const intensityDescriptions: Record<string, string> = {
     SUSTAINABLE: 'Sustainable effort with normal recovery and no overtime premium.',
     INCREASED: 'More short-term capacity; fatigue and payroll cost can increase.',
@@ -205,7 +238,86 @@ function renderDashboard(state: SimulationState): void {
   (document.getElementById('advanceButton') as HTMLButtonElement).disabled = state.complete;
   (document.getElementById('hireButton') as HTMLButtonElement).disabled = state.complete;
   (document.getElementById('workIntensity') as HTMLSelectElement).value = state.workIntensity;
+  (document.getElementById('concurrencyPolicy') as HTMLSelectElement).value = state.concurrencyPolicy;
+  (document.getElementById('engineeringApproach') as HTMLSelectElement).value = state.engineeringApproach;
+  (document.getElementById('technicalDebtPriority') as HTMLSelectElement).value = state.technicalDebtPriority;
+  renderProjectEvents(state);
+  (document.getElementById('advanceButton') as HTMLButtonElement).disabled =
+    state.complete || state.pendingEvents.length > 0;
   refreshTeamManagement();
+}
+
+function renderProjectEvents(state: SimulationState): void {
+  const pendingEvents = document.getElementById('pendingEvents')!;
+  pendingEvents.replaceChildren();
+  pendingEvents.hidden = state.pendingEvents.length === 0;
+  for (const event of state.pendingEvents) {
+    const card = document.createElement('article');
+    card.className = 'event-card';
+    const heading = document.createElement('h3');
+    heading.textContent = event.title;
+    const description = document.createElement('p');
+    description.textContent = event.description;
+    const impact = document.createElement('p');
+    impact.className = 'muted';
+    impact.textContent = `Likely impact: ${event.impactEstimate}`;
+    const choices = document.createElement('div');
+    choices.className = 'actions';
+    for (const option of event.options) {
+      const button = document.createElement('button');
+      button.textContent = option.label;
+      button.title = option.description;
+      button.addEventListener('click', () => resolveProjectEvent(event.id, option.id));
+      choices.appendChild(button);
+    }
+    card.append(heading, description, impact, choices);
+    pendingEvents.appendChild(card);
+  }
+
+  const history = document.getElementById('eventHistory')!;
+  history.replaceChildren();
+  for (const event of state.eventHistory.slice(-6).reverse()) {
+    const item = document.createElement('li');
+    const result = event.resolved ? ` - ${event.result}` : ' - Awaiting decision';
+    item.textContent = `Week ${event.week}: ${event.title}${result}`;
+    history.appendChild(item);
+  }
+}
+
+function updateProjectPolicy(
+  kind: 'concurrency' | 'engineering' | 'debt',
+  value: string
+): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('dashboardError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    const update = {
+      concurrency: bridge.setConcurrencyPolicy,
+      engineering: bridge.setEngineeringApproach,
+      debt: bridge.setTechnicalDebtPriority
+    }[kind];
+    renderDashboard(parseResponse<SimulationState>(update.call(bridge, value)));
+    document.getElementById('dashboardError')!.textContent = '';
+  } catch (error) {
+    displayError('dashboardError', error);
+  }
+}
+
+function resolveProjectEvent(eventId: string, optionId: string): void {
+  const bridge = window.javaBridge;
+  if (!bridge) {
+    displayError('dashboardError', 'The desktop bridge is not available.');
+    return;
+  }
+  try {
+    renderDashboard(parseResponse<SimulationState>(bridge.resolveEvent(eventId, optionId)));
+    document.getElementById('dashboardError')!.textContent = '';
+  } catch (error) {
+    displayError('dashboardError', error);
+  }
 }
 
 function renderTeamManagement(state: TeamManagementState): void {
@@ -408,6 +520,15 @@ document.getElementById('workIntensity')!.addEventListener('change', (event) => 
 });
 document.getElementById('testingPriority')!.addEventListener('change', (event) => {
   updateTestingPriority((event.currentTarget as HTMLSelectElement).value);
+});
+document.getElementById('concurrencyPolicy')!.addEventListener('change', (event) => {
+  updateProjectPolicy('concurrency', (event.currentTarget as HTMLSelectElement).value);
+});
+document.getElementById('engineeringApproach')!.addEventListener('change', (event) => {
+  updateProjectPolicy('engineering', (event.currentTarget as HTMLSelectElement).value);
+});
+document.getElementById('technicalDebtPriority')!.addEventListener('change', (event) => {
+  updateProjectPolicy('debt', (event.currentTarget as HTMLSelectElement).value);
 });
 document.getElementById('hireButton')!.addEventListener('click', hireEmployees);
 for (const id of ['hireRole', 'hireExperience', 'hireQuantity']) {

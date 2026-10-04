@@ -21,6 +21,7 @@ public class SimulationConfiguration {
     private Turnover turnover = new Turnover();
     private WorkIntensitySettings workIntensity = new WorkIntensitySettings();
     private Morale morale = new Morale();
+    private PhaseFiveConfiguration phaseFive = new PhaseFiveConfiguration();
 
     public Productivity getProductivity() {
         return productivity;
@@ -133,14 +134,18 @@ public class SimulationConfiguration {
         this.morale = morale;
     }
 
+    public PhaseFiveConfiguration getPhaseFive() { return phaseFive; }
+    public void setPhaseFive(PhaseFiveConfiguration value) { phaseFive = value; }
+
     public void validate() {
         if (productivity == null || quality == null || qa == null || fatigue == null
                 || onboarding == null || costs == null || initialTeamExperience == null
                 || workAllocation == null || phaseReadiness == null || testing == null || mentoring == null
                 || coordination == null || schedule == null || turnover == null
-                || workIntensity == null || morale == null) {
+                || workIntensity == null || morale == null || phaseFive == null) {
             throw new IllegalArgumentException("Simulation configuration sections cannot be null");
         }
+        phaseFive.validate();
         if (initialTeamExperience.developer == null || initialTeamExperience.qaEngineer == null
                 || initialTeamExperience.devopsEngineer == null
                 || initialTeamExperience.projectManager == null) {
